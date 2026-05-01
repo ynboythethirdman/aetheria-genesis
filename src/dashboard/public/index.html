@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aetheria Genesis — Divine Dashboard</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --surface2: #1a1a28;
+      --border: #2a2a3a;
+      --text: #e0e0f0;
+      --text-dim: #8888aa;
+      --accent: #7c5cff;
+      --accent2: #ff6b6b;
+      --gold: #ffd700;
+      --green: #4cff8e;
+      --cyan: #4ce0ff;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1a1030 0%, #0d0d1a 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      background: linear-gradient(90deg, var(--accent), var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent2);
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.online { background: var(--green); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 400px;
+      grid-template-rows: 1fr 1fr;
+      gap: 1px;
+      height: calc(100vh - 60px);
+      background: var(--border);
+    }
+
+    .panel {
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 12px 16px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .panel-body::-webkit-scrollbar { width: 6px; }
+    .panel-body::-webkit-scrollbar-track { background: var(--surface); }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Live Map ─────────────────────────────────────── */
+    #map-panel { grid-row: 1 / 3; }
+    #map-canvas {
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
+
+    /* ── Monologue Feed ──────────────────────────────── */
+    .thought-entry {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .thought-entry .name {
+      font-weight: 600;
+      color: var(--cyan);
+      font-size: 0.85rem;
+    }
+
+    .thought-entry .action-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      margin-left: 6px;
+      background: var(--surface2);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+
+    .thought-entry .thought {
+      color: var(--text-dim);
+      font-style: italic;
+      font-size: 0.85rem;
+      margin-top: 4px;
+    }
+
+    .thought-entry .speech {
+      color: var(--gold);
+      font-size: 0.85rem;
+      margin-top: 2px;
+    }
+
+    .thought-entry .emotion {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    /* ── God Console ─────────────────────────────────── */
+    #god-panel { grid-column: 3; grid-row: 1 / 3; }
+
+    .god-section {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .god-section h3 {
+      font-size: 0.8rem;
+      color: var(--gold);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .god-input-group {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .god-input-group input,
+    .god-input-group select {
+      flex: 1;
+      padding: 8px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    .god-input-group input:focus,
+    .god-input-group select:focus {
+      border-color: var(--accent);
+    }
+
+    .god-btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .god-btn:hover { transform: translateY(-1px); filter: brightness(1.1); }
+
+    .btn-lightning {
+      background: linear-gradient(135deg, #ffd700, #ff8c00);
+      color: #000;
+    }
+
+    .btn-spawn {
+      background: linear-gradient(135deg, #4cff8e, #00bfa5);
+      color: #000;
+    }
+
+    .btn-whisper {
+      background: linear-gradient(135deg, #7c5cff, #b44cff);
+      color: #fff;
+    }
+
+    .btn-broadcast {
+      background: linear-gradient(135deg, #ff6b6b, #ff3d71);
+      color: #fff;
+    }
+
+    /* ── Event Log ───────────────────────────────────── */
+    .event-entry {
+      padding: 6px 8px;
+      font-size: 0.8rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+
+    .event-entry .event-type {
+      color: var(--gold);
+      font-weight: 600;
+    }
+
+    /* ── Agent List in God Panel ─────────────────────── */
+    .agent-list-item {
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .agent-list-item:hover { background: var(--surface2); }
+
+    .agent-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+
+    .agent-list-item .arch {
+      color: var(--text-dim);
+      font-size: 0.7rem;
+    }
+
+    /* ── Religion Panel ──────────────────────────────── */
+    .doctrine {
+      padding: 8px;
+      margin: 4px 0;
+      background: var(--surface2);
+      border-left: 3px solid var(--gold);
+      border-radius: 0 4px 4px 0;
+      font-size: 0.8rem;
+    }
+
+    .doctrine .believers {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      margin-top: 4px;
+    }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @media (max-width: 1200px) {
+      .grid {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto;
+      }
+      #god-panel { grid-column: 1 / 3; }
+    }
+
+    @media (max-width: 768px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+      #god-panel { grid-column: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AETHERIA GENESIS — Divine Dashboard</h1>
+    <div class="status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Connecting...</span>
+      <span id="agent-count">0 agents</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Live Map -->
+    <div class="panel" id="map-panel">
+      <div class="panel-header">
+        Live Map
+        <span id="map-info" style="font-weight:normal; font-size:0.75rem; color:var(--text-dim)">Click an agent to select</span>
+      </div>
+      <div class="panel-body" style="padding:0; position:relative;">
+        <canvas id="map-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Inner Monologue Feed -->
+    <div class="panel" id="thought-panel">
+      <div class="panel-header">Inner Monologue Feed</div>
+      <div class="panel-body" id="thought-feed"></div>
+    </div>
+
+    <!-- God Console + Agent List -->
+    <div class="panel" id="god-panel">
+      <div class="panel-header">God Console</div>
+      <div class="panel-body">
+        <!-- God Actions -->
+        <div class="god-section">
+          <h3>Smite</h3>
+          <div class="god-input-group">
+            <select id="lightning-target"><option value="">Random Agent</option></select>
+            <button class="god-btn btn-lightning" onclick="strikeLightning()">Strike Lightning</button>
+          </div>
+        </div>
+
+        <div class="god-section">
+          <h3>Spawn Item</h3>
+          <div class="god-input-group">
+            <select id="spawn-target"><option value="">Select Agent</option></select>
+            <input type="text" id="spawn-item" placeholder="e.g. diamond, golden_apple" />
+          </div>
+          <button class="god-btn btn-spawn" style="width:100%" onclick="spawnItem()">Materialize</button>
+        </div>
+
+        <div class="god-section">
+          <h3>Divine Whisper</h3>
+          <div class="god-input-group">
+            <select id="whisper-target"><option value="">Select Agent</option></select>
+          </div>
+          <div class="god-input-group">
+            <input type="text" id="whisper-msg" placeholder="Whisper a divine truth..." />
+            <button class="god-btn btn-whisper" onclick="whisperToAgent()">Whisper</button>
+          </div>
+        </div>
+
+        <div class="god-section">
+          <h3>Broadcast to All</h3>
+          <div class="god-input-group">
+            <input type="text" id="broadcast-msg" placeholder="A world-shaking event..." />
+            <button class="god-btn btn-broadcast" onclick="broadcastEvent()">Broadcast</button>
+          </div>
+        </div>
+
+        <!-- Religion Tracker -->
+        <div class="god-section">
+          <h3>Emerging Doctrines</h3>
+          <div id="doctrines-list"><em style="color:var(--text-dim);font-size:0.8rem">No doctrines yet...</em></div>
+        </div>
+
+        <!-- Event Log -->
+        <div class="god-section">
+          <h3>Event Log</h3>
+          <div id="event-log"></div>
+        </div>
+
+        <!-- Agent Roster -->
+        <div class="god-section">
+          <h3>Agent Roster</h3>
+          <div id="agent-roster"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    const agents = new Map();
+    const thoughts = [];
+    const events = [];
+    const MAX_THOUGHTS = 200;
+    const MAX_EVENTS = 100;
+
+    // ── Socket Events ──────────────────────────────────────────────
+    socket.on('connect', () => {
+      document.getElementById('status-dot').classList.add('online');
+      document.getElementById('status-text').textContent = 'Connected';
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('status-dot').classList.remove('online');
+      document.getElementById('status-text').textContent = 'Disconnected';
+    });
+
+    socket.on('agents:list', (list) => {
+      list.forEach((a) => agents.set(a.id, a));
+      updateAgentCount();
+      updateDropdowns();
+      updateRoster();
+    });
+
+    socket.on('agent:spawn', (data) => {
+      agents.set(data.agentId, { id: data.agentId, name: data.name, position: data.position });
+      updateAgentCount();
+      updateDropdowns();
+      updateRoster();
+      addEvent('spawn', `${data.name} entered Aetheria`);
+    });
+
+    socket.on('agent:despawn', (data) => {
+      const a = agents.get(data.agentId);
+      agents.delete(data.agentId);
+      updateAgentCount();
+      updateDropdowns();
+      updateRoster();
+      addEvent('despawn', `${a?.name || 'Unknown'} left Aetheria`);
+    });
+
+    socket.on('agent:tick', (data) => {
+      // Update position
+      if (agents.has(data.agentId)) {
+        const a = agents.get(data.agentId);
+        a.position = data.position;
+        a.name = data.name;
+      }
+
+      // Add thought to feed
+      addThought(data);
+    });
+
+    socket.on('gossip:spread', (data) => {
+      addEvent('gossip', `${data.source} gossips: "${data.rumor.substring(0, 60)}..."`);
+    });
+
+    socket.on('god:event', (data) => {
+      addEvent('god', `God event on agent #${data.agentId}: ${data.event}`);
+    });
+
+    socket.on('god:whisper', (data) => {
+      addEvent('whisper', `Whispered to agent #${data.agentId}: "${data.message}"`);
+    });
+
+    socket.on('manager:ready', (data) => {
+      addEvent('system', `All ${data.count} agents are online!`);
+    });
+
+    // ── Thought Feed ───────────────────────────────────────────────
+    function addThought(data) {
+      thoughts.unshift(data);
+      if (thoughts.length > MAX_THOUGHTS) thoughts.pop();
+
+      const feed = document.getElementById('thought-feed');
+      const el = document.createElement('div');
+      el.className = 'thought-entry';
+      el.innerHTML = `
+        <span class="name">${esc(data.name)}</span>
+        <span class="action-badge">${esc(data.action)}</span>
+        <div class="thought">"${esc(data.thought)}"</div>
+        ${data.speech ? `<div class="speech">Says: "${esc(data.speech)}"</div>` : ''}
+        <div class="emotion">Feeling: ${esc(data.emotion || 'neutral')}</div>
+      `;
+      feed.prepend(el);
+
+      // Trim DOM
+      while (feed.children.length > 100) {
+        feed.removeChild(feed.lastChild);
+      }
+    }
+
+    // ── Event Log ──────────────────────────────────────────────────
+    function addEvent(type, text) {
+      events.unshift({ type, text, time: new Date() });
+      if (events.length > MAX_EVENTS) events.pop();
+
+      const log = document.getElementById('event-log');
+      const el = document.createElement('div');
+      el.className = 'event-entry';
+      el.innerHTML = `<span class="event-type">[${esc(type)}]</span> ${esc(text)}`;
+      log.prepend(el);
+
+      while (log.children.length > 50) {
+        log.removeChild(log.lastChild);
+      }
+    }
+
+    // ── Map Canvas ─────────────────────────────────────────────────
+    const canvas = document.getElementById('map-canvas');
+    const ctx = canvas.getContext('2d');
+    let selectedAgent = null;
+
+    function resizeCanvas() {
+      const parent = canvas.parentElement;
+      canvas.width = parent.clientWidth;
+      canvas.height = parent.clientHeight;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function drawMap() {
+      ctx.fillStyle = '#0a0a0f';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw grid
+      ctx.strokeStyle = '#1a1a2a';
+      ctx.lineWidth = 0.5;
+      const gridSize = 20;
+      for (let x = 0; x < canvas.width; x += gridSize) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += gridSize) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      // Center of map
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const scale = 2;
+
+      // Draw agents
+      for (const [id, agent] of agents) {
+        if (!agent.position) continue;
+        const x = cx + agent.position.x * scale;
+        const y = cy + agent.position.z * scale;
+
+        // Dot
+        ctx.beginPath();
+        ctx.arc(x, y, selectedAgent === id ? 6 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = selectedAgent === id ? '#ffd700' : '#4cff8e';
+        ctx.fill();
+
+        // Label
+        if (selectedAgent === id || agents.size < 30) {
+          ctx.font = '10px system-ui';
+          ctx.fillStyle = '#8888aa';
+          ctx.fillText(agent.name || `Agent ${id}`, x + 8, y + 3);
+        }
+      }
+
+      // Origin cross
+      ctx.strokeStyle = '#2a2a3a';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+
+      requestAnimationFrame(drawMap);
+    }
+
+    drawMap();
+
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const scale = 2;
+
+      let closest = null;
+      let closestDist = Infinity;
+
+      for (const [id, agent] of agents) {
+        if (!agent.position) continue;
+        const x = cx + agent.position.x * scale;
+        const y = cy + agent.position.z * scale;
+        const dist = Math.sqrt((mx - x) ** 2 + (my - y) ** 2);
+        if (dist < closestDist && dist < 20) {
+          closest = id;
+          closestDist = dist;
+        }
+      }
+
+      selectedAgent = closest;
+      if (closest !== null) {
+        const a = agents.get(closest);
+        document.getElementById('map-info').textContent = `Selected: ${a.name || 'Agent ' + closest}`;
+      } else {
+        document.getElementById('map-info').textContent = 'Click an agent to select';
+      }
+    });
+
+    // ── Dropdowns ──────────────────────────────────────────────────
+    function updateDropdowns() {
+      const selects = ['lightning-target', 'spawn-target', 'whisper-target'];
+      selects.forEach((selId) => {
+        const sel = document.getElementById(selId);
+        const current = sel.value;
+        const firstOption = sel.options[0].outerHTML;
+        sel.innerHTML = firstOption;
+        for (const [id, agent] of agents) {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = agent.name || `Agent ${id}`;
+          sel.appendChild(opt);
+        }
+        sel.value = current;
+      });
+    }
+
+    function updateAgentCount() {
+      document.getElementById('agent-count').textContent = `${agents.size} agents`;
+    }
+
+    function updateRoster() {
+      const roster = document.getElementById('agent-roster');
+      roster.innerHTML = '';
+      for (const [id, agent] of agents) {
+        const el = document.createElement('div');
+        el.className = 'agent-list-item';
+        el.innerHTML = `<div class="agent-dot"></div> <span>${esc(agent.name || 'Agent ' + id)}</span> <span class="arch">${esc(agent.archetype || '')}</span>`;
+        el.onclick = () => { selectedAgent = id; };
+        roster.appendChild(el);
+      }
+    }
+
+    // ── God Actions ────────────────────────────────────────────────
+    async function strikeLightning() {
+      const target = document.getElementById('lightning-target').value;
+      const body = target ? { agentId: parseInt(target) } : {};
+      await fetch('/api/god/lightning', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function spawnItem() {
+      const agentId = document.getElementById('spawn-target').value;
+      const item = document.getElementById('spawn-item').value.trim();
+      if (!agentId || !item) return alert('Select an agent and enter an item name.');
+      await fetch('/api/god/spawn-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: parseInt(agentId), item }),
+      });
+      document.getElementById('spawn-item').value = '';
+    }
+
+    async function whisperToAgent() {
+      const agentId = document.getElementById('whisper-target').value;
+      const message = document.getElementById('whisper-msg').value.trim();
+      if (!agentId || !message) return alert('Select an agent and enter a message.');
+      await fetch('/api/god/whisper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: parseInt(agentId), message }),
+      });
+      document.getElementById('whisper-msg').value = '';
+    }
+
+    async function broadcastEvent() {
+      const event = document.getElementById('broadcast-msg').value.trim();
+      if (!event) return alert('Enter an event description.');
+      await fetch('/api/god/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event }),
+      });
+      document.getElementById('broadcast-msg').value = '';
+    }
+
+    // ── Religion polling ───────────────────────────────────────────
+    async function pollReligion() {
+      try {
+        const res = await fetch('/api/religion');
+        const data = await res.json();
+        const el = document.getElementById('doctrines-list');
+        if (data.doctrines && data.doctrines.length > 0) {
+          el.innerHTML = data.doctrines.map((d) => `
+            <div class="doctrine">
+              "${esc(d.text)}"
+              <div class="believers">Believers: ${d.believers.map(esc).join(', ')}</div>
+            </div>
+          `).join('');
+        }
+      } catch {}
+    }
+
+    setInterval(pollReligion, 10000);
+
+    // ── Util ───────────────────────────────────────────────────────
+    function esc(s) {
+      if (!s) return '';
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+  </script>
+</body>
+</html>
