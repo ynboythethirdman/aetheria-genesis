@@ -39,9 +39,16 @@ function setLocal(key, value) {
 
 // ── Redis client (lazy init) ────────────────────────────────────────────
 let redis = null;
+let redisFailed = false;
+const REDIS_RETRY_AFTER = 60000;
+let redisFailedAt = 0;
 
 function getRedis() {
   if (redis) return redis;
+  if (redisFailed) {
+    if (Date.now() - redisFailedAt < REDIS_RETRY_AFTER) return null;
+    redisFailed = false;
+  }
   if (!config.redis.url || !Redis) return null;
   redis = new Redis(config.redis.url, {
     password: config.redis.token || undefined,
@@ -51,7 +58,10 @@ function getRedis() {
   });
   redis.connect().catch((err) => {
     console.error('[Memory] Redis connection failed, using in-memory fallback:', err.message);
+    try { redis.disconnect(); } catch { /* ignore */ }
     redis = null;
+    redisFailed = true;
+    redisFailedAt = Date.now();
   });
   return redis;
 }
@@ -127,7 +137,10 @@ async function addBelief(agentId, belief) {
     await r.hset(key, belief.idea, JSON.stringify(belief));
   } else {
     const set = getLocal(key, []);
-    if (!set.find((b) => b.idea === belief.idea)) {
+    const existingIndex = set.findIndex((b) => b.idea === belief.idea);
+    if (existingIndex >= 0) {
+      set[existingIndex] = belief;
+    } else {
       set.push(belief);
     }
     setLocal(key, set);

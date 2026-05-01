@@ -70,6 +70,13 @@ async function processReligiousEvent(soul, godEvent) {
         believers: relatedEvents.map((e) => e.witness),
         formedAt: Date.now(),
       });
+    } else {
+      const newBelievers = relatedEvents.map((e) => e.witness);
+      for (const b of newBelievers) {
+        if (!existing.believers.includes(b)) {
+          existing.believers.push(b);
+        }
+      }
     }
   }
 
