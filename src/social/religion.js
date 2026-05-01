@@ -56,6 +56,7 @@ async function processReligiousEvent(soul, godEvent) {
     interpretation,
     timestamp: Date.now(),
   });
+  if (pantheon.events.length > 1000) pantheon.events.splice(0, pantheon.events.length - 1000);
 
   // If enough agents believe the same thing, it becomes doctrine
   const relatedEvents = pantheon.events.filter(

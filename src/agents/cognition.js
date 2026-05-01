@@ -139,6 +139,7 @@ async function cognitiveTick(agentState, bot, eventBus) {
   // 1. Observe
   const observations = await observe(bot);
   observations.recentChat = agentState.recentChat || [];
+  agentState.recentChat = [];
   observations.godEvent = agentState.pendingGodEvent || null;
   agentState.pendingGodEvent = null;
 
@@ -169,9 +170,6 @@ async function cognitiveTick(agentState, bot, eventBus) {
   if (observations.godEvent) {
     await processReligiousEvent(soul, observations.godEvent);
   }
-
-  // Clear recent chat buffer
-  agentState.recentChat = [];
 
   // Emit to dashboard
   if (eventBus) {

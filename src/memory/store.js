@@ -124,7 +124,7 @@ async function addBelief(agentId, belief) {
   const r = getRedis();
   const key = localKey(agentId, 'beliefs');
   if (r) {
-    await r.sadd(key, JSON.stringify(belief));
+    await r.hset(key, belief.idea, JSON.stringify(belief));
   } else {
     const set = getLocal(key, []);
     if (!set.find((b) => b.idea === belief.idea)) {
@@ -138,8 +138,8 @@ async function getBeliefs(agentId) {
   const r = getRedis();
   const key = localKey(agentId, 'beliefs');
   if (r) {
-    const raw = await r.smembers(key);
-    return raw.map((s) => JSON.parse(s));
+    const raw = await r.hgetall(key);
+    return Object.values(raw).map((s) => JSON.parse(s));
   }
   return getLocal(key, []);
 }

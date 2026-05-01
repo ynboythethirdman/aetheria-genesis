@@ -23,16 +23,15 @@ const PROVIDERS = {
   },
 };
 
-// Simple token-bucket rate limiter
-let lastCall = 0;
+// Serialized rate limiter — chains promises so concurrent callers queue up
+let pending = Promise.resolve();
 
 async function rateLimit() {
-  const now = Date.now();
-  const wait = config.llm.rateLimit - (now - lastCall);
-  if (wait > 0) {
-    await new Promise((r) => setTimeout(r, wait));
-  }
-  lastCall = Date.now();
+  const next = pending.then(
+    () => new Promise((r) => setTimeout(r, config.llm.rateLimit))
+  );
+  pending = next;
+  await next;
 }
 
 /**

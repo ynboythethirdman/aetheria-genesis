@@ -58,6 +58,7 @@ async function spreadGossip(soul, rumor, targetName, eventBus) {
     spreadTo: [],
   };
   gossipLedger.push(entry);
+  if (gossipLedger.length > 1000) gossipLedger.splice(0, gossipLedger.length - 1000);
 
   // Emit for dashboard
   if (eventBus) {
