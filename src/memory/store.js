@@ -39,31 +39,38 @@ function setLocal(key, value) {
 
 // ── Redis client (lazy init) ────────────────────────────────────────────
 let redis = null;
+let redisConnected = false;
 let redisFailed = false;
 const REDIS_RETRY_AFTER = 60000;
 let redisFailedAt = 0;
 
 function getRedis() {
-  if (redis) return redis;
+  if (redis && redisConnected) return redis;
   if (redisFailed) {
     if (Date.now() - redisFailedAt < REDIS_RETRY_AFTER) return null;
     redisFailed = false;
   }
   if (!config.redis.url || !Redis) return null;
-  redis = new Redis(config.redis.url, {
+  if (redis) return null; // Connection in progress, use fallback until ready
+  const client = new Redis(config.redis.url, {
     password: config.redis.token || undefined,
     tls: config.redis.url.startsWith('rediss://') ? {} : undefined,
     maxRetriesPerRequest: 2,
     lazyConnect: true,
   });
-  redis.connect().catch((err) => {
+  redis = client;
+  client.connect().then(() => {
+    redisConnected = true;
+    console.log('[Memory] Redis connected successfully');
+  }).catch((err) => {
     console.error('[Memory] Redis connection failed, using in-memory fallback:', err.message);
-    try { redis.disconnect(); } catch { /* ignore */ }
+    try { client.disconnect(); } catch { /* ignore */ }
     redis = null;
+    redisConnected = false;
     redisFailed = true;
     redisFailedAt = Date.now();
   });
-  return redis;
+  return null; // Return null until connection is confirmed
 }
 
 // ── Public API ──────────────────────────────────────────────────────────

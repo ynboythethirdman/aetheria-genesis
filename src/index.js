@@ -119,6 +119,16 @@ async function main() {
   // Initial GDP snapshot
   bank.snapshotGDP();
 
+  // ── Graceful shutdown (register before spawn to handle SIGINT during long spawn) ──
+  async function shutdown() {
+    console.log('\n[Genesis] Shutting down Aetheria...');
+    await botManager.shutdown();
+    process.exit(0);
+  }
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
   // ── 7. Connect to Minecraft and spawn agents ──────────────────────
   if (!config.minecraft.host || config.minecraft.host === 'localhost') {
     console.log('');
@@ -137,16 +147,6 @@ async function main() {
   } catch (err) {
     console.error(`[Genesis] Fatal spawn error: ${err.message}`);
   }
-
-  // ── Graceful shutdown ──────────────────────────────────────────────
-  async function shutdown() {
-    console.log('\n[Genesis] Shutting down Aetheria...');
-    await botManager.shutdown();
-    process.exit(0);
-  }
-
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
 }
 
 main().catch((err) => {
