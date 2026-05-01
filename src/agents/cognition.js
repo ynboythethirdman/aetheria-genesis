@@ -379,7 +379,10 @@ async function executeAction(agentState, bot, decision, eventBus, systems) {
       case 'report_crime':
         if (decision.target && systems?.justice) {
           const crimeType = decision.speech || 'theft';
-          systems.justice.reportCrime(soul.id, soul.name, decision.target, decision.target, crimeType, ['Witnessed by ' + soul.name]);
+          const crimeTargetId = systems.nameToId ? systems.nameToId.get(decision.target) : undefined;
+          if (crimeTargetId !== undefined) {
+            systems.justice.reportCrime(soul.id, soul.name, crimeTargetId, decision.target, crimeType, ['Witnessed by ' + soul.name]);
+          }
         }
         break;
 

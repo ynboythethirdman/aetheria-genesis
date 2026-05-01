@@ -10,11 +10,12 @@ class PrayerSystem {
     this.eventBus = eventBus;
     this.prayers = [];       // All prayers
     this.unanswered = [];    // Pending prayers awaiting divine response
+    this.nextPrayerId = 0;
   }
 
   pray(soul, reason, needs) {
     const prayer = {
-      id: this.prayers.length,
+      id: this.nextPrayerId++,
       agentId: soul.id,
       agentName: soul.name,
       archetype: soul.archetype,
