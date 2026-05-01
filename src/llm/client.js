@@ -42,7 +42,7 @@ async function rateLimit() {
  * @param {string} userPrompt   - The user-level (agent-level) query
  * @returns {Promise<string>}   - The LLM response text
  */
-async function think(systemPrompt, userPrompt) {
+async function think(systemPrompt, userPrompt, retried = false) {
   await rateLimit();
 
   const provider = PROVIDERS[config.llm.provider];
@@ -79,10 +79,10 @@ async function think(systemPrompt, userPrompt) {
     console.error(`[LLM] Error (${status}): ${msg}`);
 
     // Retry once on rate-limit
-    if (status === 429) {
+    if (status === 429 && !retried) {
       const retryAfter = parseInt(err.response?.headers?.['retry-after'] || '5', 10);
       await new Promise((r) => setTimeout(r, retryAfter * 1000));
-      return think(systemPrompt, userPrompt);
+      return think(systemPrompt, userPrompt, true);
     }
     return `[LLM error: ${msg}]`;
   }

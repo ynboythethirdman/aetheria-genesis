@@ -221,12 +221,16 @@ async function executeAction(agentState, bot, decision, eventBus) {
         };
         const dir = directions[decision.target] || directions.random;
         const goal = bot.entity.position.offset(dir.x, 0, dir.z);
-        try {
-          await bot.pathfinder?.goto(
-            new (require('mineflayer-pathfinder').goals.GoalNear)(goal.x, goal.y, goal.z, 2)
-          );
-        } catch {
-          // Pathfinder not loaded or failed — simple walk
+        if (bot.pathfinder) {
+          try {
+            await bot.pathfinder.goto(
+              new (require('mineflayer-pathfinder').goals.GoalNear)(goal.x, goal.y, goal.z, 2)
+            );
+          } catch {
+            bot.setControlState('forward', true);
+            setTimeout(() => bot.setControlState('forward', false), 2000);
+          }
+        } else {
           bot.setControlState('forward', true);
           setTimeout(() => bot.setControlState('forward', false), 2000);
         }

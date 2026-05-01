@@ -202,7 +202,8 @@ class BotManager {
     const agent = this.agents.get(agentId);
     if (agent && agent.bot?.entity) {
       const pos = agent.bot.entity.position;
-      agent.bot.chat(`/give ${agent.soul.username} ${itemName} 1`);
+      const safeItem = itemName.replace(/[^a-zA-Z0-9_:]/g, '');
+      agent.bot.chat(`/give ${agent.soul.username} ${safeItem} 1`);
       this.sendGodEvent(agentId, `A ${itemName} materialized out of thin air!`);
     }
   }
