@@ -35,7 +35,8 @@ class PrayerSystem {
   }
 
   answerPrayer(prayerId, response) {
-    const prayer = this.prayers.find((p) => p.id === prayerId);
+    let prayer = this.prayers.find((p) => p.id === prayerId);
+    if (!prayer) prayer = this.unanswered.find((p) => p.id === prayerId);
     if (!prayer) return null;
 
     prayer.answered = true;

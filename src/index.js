@@ -60,7 +60,14 @@ async function main() {
   const prayers = new PrayerSystem(eventBus);
   const loreKeeper = new LoreKeeper(eventBus);
 
-  const systems = { guilds, bank, justice, prayers, loreKeeper };
+  // Build name→id lookup for trade/scam target resolution
+  const nameToId = new Map();
+  for (const soul of souls) {
+    nameToId.set(soul.name, soul.id);
+    nameToId.set(soul.username, soul.id);
+  }
+
+  const systems = { guilds, bank, justice, prayers, loreKeeper, nameToId };
 
   // Pre-assign guilds and wallets for all souls
   for (const soul of souls) {

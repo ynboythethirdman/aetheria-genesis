@@ -354,8 +354,10 @@ async function executeAction(agentState, bot, decision, eventBus, systems) {
 
       case 'trade':
         if (decision.target && systems?.bank) {
+          const targetId = systems.nameToId ? systems.nameToId.get(decision.target) : undefined;
+          if (targetId === undefined) break;
           const amount = Math.floor(Math.random() * 3) + 1;
-          const result = systems.bank.transfer(soul.id, decision.target, amount);
+          const result = systems.bank.transfer(soul.id, targetId, amount);
           if (result.success && agentState.needs) {
             satisfyNeed(agentState.needs, 'belonging', 0.04);
           }
@@ -364,10 +366,12 @@ async function executeAction(agentState, bot, decision, eventBus, systems) {
 
       case 'scam':
         if (decision.target && systems?.bank) {
+          const scamTargetId = systems.nameToId ? systems.nameToId.get(decision.target) : undefined;
+          if (scamTargetId === undefined) break;
           const amount = Math.floor(Math.random() * 5) + 2;
-          const result = systems.bank.attemptScam(soul.id, decision.target, amount, soul.traits.greed);
+          const result = systems.bank.attemptScam(soul.id, scamTargetId, amount, soul.traits.greed);
           if (result.caught && systems.justice) {
-            systems.justice.reportCrime(decision.target, 'Victim', soul.id, soul.name, 'fraud', ['Trade log shows discrepancy']);
+            systems.justice.reportCrime(scamTargetId, decision.target, soul.id, soul.name, 'fraud', ['Trade log shows discrepancy']);
           }
         }
         break;

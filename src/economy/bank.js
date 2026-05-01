@@ -16,7 +16,7 @@ class TownBank {
     this.gdpHistory = [];         // { timestamp, totalWealth, gdp, gini }
     this.tradeLog = [];           // recent trades
     this.disputes = [];           // unresolved trade disputes
-    this.marketPrices = {
+    this.basePrices = {
       food: 1,
       wood: 2,
       stone: 4,
@@ -25,6 +25,7 @@ class TownBank {
       diamond: 32,
       emerald: 1,
     };
+    this.marketPrices = { ...this.basePrices };
     this.supplyLevels = {
       food: 100,
       wood: 80,
@@ -129,11 +130,10 @@ class TownBank {
   }
 
   updateInflation() {
-    // If lots of emeralds injected, prices rise
     const inflationFactor = 1 + (this.totalEmeraldsInjected / 1000) * 0.1;
-    for (const item of Object.keys(this.marketPrices)) {
+    for (const item of Object.keys(this.basePrices)) {
       if (item !== 'emerald') {
-        this.marketPrices[item] = Math.round(this.marketPrices[item] * inflationFactor * 100) / 100;
+        this.marketPrices[item] = Math.round(this.basePrices[item] * inflationFactor * 100) / 100;
       }
     }
   }

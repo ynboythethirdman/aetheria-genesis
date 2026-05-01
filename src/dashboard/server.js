@@ -38,7 +38,7 @@ function createDashboard(botManager, eventBus, systems) {
   });
 
   app.get('/api/agents/:id', (req, res) => {
-    const agent = botManager.getAgent(req.params.id);
+    const agent = botManager.getAgent(parseInt(req.params.id, 10));
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     const guild = systems?.guilds ? systems.guilds.getGuild(agent.soul.id) : null;
     const wealth = systems?.bank ? systems.bank.getAgentWealth(agent.soul.id) : null;
@@ -98,7 +98,7 @@ function createDashboard(botManager, eventBus, systems) {
   // ── God Console Actions ───────────────────────────────────────────────
 
   app.post('/api/god/lightning', (req, res) => {
-    const { agentId } = req.body;
+    const agentId = req.body.agentId !== undefined ? parseInt(req.body.agentId, 10) : undefined;
     if (agentId !== undefined) {
       botManager.strikeLightning(agentId);
       res.json({ ok: true, action: 'lightning', agentId });
@@ -115,14 +115,16 @@ function createDashboard(botManager, eventBus, systems) {
   });
 
   app.post('/api/god/spawn-item', (req, res) => {
-    const { agentId, item } = req.body;
+    const { item } = req.body;
+    const agentId = req.body.agentId !== undefined ? parseInt(req.body.agentId, 10) : undefined;
     if (agentId === undefined || !item) return res.status(400).json({ error: 'agentId and item required' });
     botManager.spawnItem(agentId, item);
     res.json({ ok: true, action: 'spawn-item', agentId, item });
   });
 
   app.post('/api/god/whisper', (req, res) => {
-    const { agentId, message } = req.body;
+    const { message } = req.body;
+    const agentId = req.body.agentId !== undefined ? parseInt(req.body.agentId, 10) : undefined;
     if (agentId === undefined || !message) return res.status(400).json({ error: 'agentId and message required' });
     botManager.whisper(agentId, message);
     res.json({ ok: true, action: 'whisper', agentId, message });
@@ -147,7 +149,8 @@ function createDashboard(botManager, eventBus, systems) {
   });
 
   app.post('/api/god/inject-emeralds', (req, res) => {
-    const { agentId, amount } = req.body;
+    const { amount } = req.body;
+    const agentId = req.body.agentId !== undefined ? parseInt(req.body.agentId, 10) : undefined;
     if (agentId === undefined || !amount) return res.status(400).json({ error: 'agentId and amount required' });
     if (systems?.bank) {
       systems.bank.injectEmeralds(agentId, amount);

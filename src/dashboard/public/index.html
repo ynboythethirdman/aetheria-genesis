@@ -546,7 +546,7 @@ function addMonologueEntry(data) {
   const div = document.createElement('div');
   div.className = 'feed-item';
   div.style.borderLeftColor = EMOTION_COLORS[data.emotion] || '#888';
-  div.innerHTML = `<span class="name" style="cursor:pointer" onclick="openSoulWindow('${data.agentId}')">${data.name}</span>
+  div.innerHTML = `<span class="name" style="cursor:pointer" onclick="openSoulWindow(${JSON.stringify(data.agentId)})">${data.name}</span>
     <span class="action-badge badge-${data.action}">${data.action}</span>
     <span class="emotion">[${data.emotion}]</span>
     ${data.guild ? `<span style="color:var(--cyan);font-size:10px">${data.guild}</span>` : ''}
