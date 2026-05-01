@@ -1,12 +1,12 @@
 /**
- * Aetheria Genesis — Main Entry Point
+ * Aetheria Genesis — Main Entry Point (Phase 2)
  *
- * Orchestrates:
+ * Orchestrates all subsystems:
  *   1. Soul generation (100 unique agent profiles)
- *   2. Dashboard launch (Express + Socket.IO)
- *   3. Bot fleet spawn (staggered Mineflayer connections)
- *
- * Designed to run headless in Replit or any Node.js environment.
+ *   2. Phase 2 systems: Guilds, Economics, Justice, Prayers, Lore
+ *   3. Dashboard launch (Express + Socket.IO)
+ *   4. Bot fleet spawn (staggered Mineflayer connections)
+ *   5. Periodic GDP snapshots and lore generation
  */
 
 const { EventEmitter } = require('events');
@@ -16,6 +16,11 @@ const config = require('./config');
 const { generateAllSouls } = require('./agents/generateSouls');
 const BotManager = require('./bot/manager');
 const { createDashboard } = require('./dashboard/server');
+const { GuildSystem } = require('./systems/guilds');
+const { TownBank } = require('./economy/bank');
+const { JusticeSystem } = require('./justice/court');
+const { PrayerSystem } = require('./systems/prayers');
+const { LoreKeeper } = require('./systems/loreKeeper');
 
 // Increase listener limit for 100+ agents
 EventEmitter.defaultMaxListeners = 200;
@@ -23,8 +28,9 @@ EventEmitter.defaultMaxListeners = 200;
 async function main() {
   console.log('');
   console.log('  ╔═══════════════════════════════════════════╗');
-  console.log('  ║        AETHERIA GENESIS v1.0.0            ║');
+  console.log('  ║        AETHERIA GENESIS v2.0.0            ║');
   console.log('  ║   100-Agent Autonomous Civilization       ║');
+  console.log('  ║   Phase 2: Economics, Justice, Guilds     ║');
   console.log('  ╚═══════════════════════════════════════════╝');
   console.log('');
 
@@ -45,23 +51,81 @@ async function main() {
   // ── 2. Create event bus ────────────────────────────────────────────
   const eventBus = new EventEmitter();
 
-  // ── 3. Create bot manager ─────────────────────────────────────────
-  const botManager = new BotManager(souls, eventBus);
+  // ── 3. Initialize Phase 2 systems ──────────────────────────────────
+  console.log('[Genesis] Initializing Phase 2 systems...');
 
-  // ── 4. Start dashboard ────────────────────────────────────────────
-  const dashboard = createDashboard(botManager, eventBus);
+  const guilds = new GuildSystem();
+  const bank = new TownBank(eventBus);
+  const justice = new JusticeSystem(eventBus);
+  const prayers = new PrayerSystem(eventBus);
+  const loreKeeper = new LoreKeeper(eventBus);
+
+  const systems = { guilds, bank, justice, prayers, loreKeeper };
+
+  // Pre-assign guilds and wallets for all souls
+  for (const soul of souls) {
+    guilds.assignGuild(soul.id, soul);
+    const startingWealth = Math.floor(5 + soul.traits.greed * 15 + Math.random() * 10);
+    bank.initWallet(soul.id, startingWealth);
+  }
+
+  console.log(`[Genesis] Guilds assigned: ${JSON.stringify(guilds.getStatus().guildCounts)}`);
+  console.log(`[Genesis] Economy initialized: ${bank.wallets.size} wallets`);
+
+  // ── 4. Create bot manager ─────────────────────────────────────────
+  const botManager = new BotManager(souls, eventBus, systems);
+
+  // ── 5. Start dashboard ────────────────────────────────────────────
+  const dashboard = createDashboard(botManager, eventBus, systems);
   await dashboard.start();
   console.log(`[Genesis] Dashboard: http://localhost:${config.dashboard.port}`);
 
-  // ── 5. Connect to Minecraft and spawn agents ──────────────────────
+  // ── 6. Periodic systems ────────────────────────────────────────────
+  // GDP snapshot every 60 seconds
+  setInterval(() => {
+    bank.snapshotGDP();
+  }, 60000);
+
+  // Check for new inventable roles every 5 minutes
+  setInterval(() => {
+    const allAgents = botManager.getAllAgents();
+    const worldState = {
+      population: allAgents.length,
+      povertyRate: allAgents.filter((a) => a.wealth < 5).length / Math.max(1, allAgents.length),
+      crimeRate: justice.bounties.filter((b) => b.status === 'active').length / Math.max(1, allAgents.length),
+      inequalityGini: bank.calculateGini(),
+      averageRebellion: souls.reduce((s, so) => s + (so.traits.rebellion || 0.1), 0) / souls.length,
+      averageHealth: allAgents.reduce((s, a) => s + (a.health || 20), 0) / Math.max(1, allAgents.length) / 20,
+      factionCount: Object.keys(guilds.getStatus().guilds).length,
+    };
+    const newRoles = guilds.checkForNewRoles(worldState);
+    if (newRoles.length > 0) {
+      console.log(`[Genesis] New roles invented: ${newRoles.join(', ')}`);
+      eventBus.emit('guilds:new_role', { roles: newRoles });
+    }
+  }, 300000);
+
+  // Lore chapter generation check every 10 minutes
+  setInterval(async () => {
+    if (loreKeeper.shouldGenerateChapter()) {
+      console.log('[Genesis] Generating lore chapter...');
+      const chapter = await loreKeeper.generateChapter();
+      if (chapter) {
+        console.log(`[Genesis] Chapter "${chapter.title}" written.`);
+      }
+    }
+  }, 600000);
+
+  // Initial GDP snapshot
+  bank.snapshotGDP();
+
+  // ── 7. Connect to Minecraft and spawn agents ──────────────────────
   if (!config.minecraft.host || config.minecraft.host === 'localhost') {
     console.log('');
     console.log('[Genesis] ⚠  No Minecraft server configured.');
     console.log('[Genesis]    Set MC_HOST environment variable to your server IP.');
     console.log('[Genesis]    Dashboard is running — agents will spawn once MC_HOST is set.');
     console.log('');
-
-    // Keep the process alive for the dashboard
     return;
   }
 
