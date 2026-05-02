@@ -100,7 +100,7 @@ function generateSoul(index) {
   return {
     id: index,
     name: `${firstName} ${epithet}`,
-    username: `aetheria_${firstName.toLowerCase()}_${index}`,
+    username: `ae_${firstName.toLowerCase()}_${index}`,
     archetype: pick(ARCHETYPES),
     backstory: pick(BACKSTORIES),
     speechStyle: pick(SPEECH_STYLES),
