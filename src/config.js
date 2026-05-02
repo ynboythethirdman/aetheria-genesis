@@ -16,7 +16,7 @@ module.exports = {
   agents: {
     count: parseInt(process.env.AGENT_COUNT || '100', 10),
     spawnDelay: parseInt(process.env.SPAWN_DELAY_MS || '5000', 10),
-    tickInterval: parseInt(process.env.TICK_INTERVAL_MS || '10000', 10),
+    tickInterval: parseInt(process.env.TICK_INTERVAL_MS || '30000', 10),
     chatRadius: parseInt(process.env.CHAT_RADIUS || '32', 10),
     gossipChance: parseFloat(process.env.GOSSIP_CHANCE || '0.3'),
   },
@@ -25,10 +25,10 @@ module.exports = {
   llm: {
     provider: process.env.LLM_PROVIDER || 'groq',           // 'groq' | 'openrouter'
     apiKey: process.env.LLM_API_KEY || '',
-    model: process.env.LLM_MODEL || 'llama-3.3-70b-versatile',
-    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '256', 10),
+    model: process.env.LLM_MODEL || 'llama-3.1-8b-instant',
+    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '150', 10),
     temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.9'),
-    rateLimit: parseInt(process.env.LLM_RATE_LIMIT_MS || '200', 10),
+    rateLimit: parseInt(process.env.LLM_RATE_LIMIT_MS || '1000', 10),
   },
 
   // ── Memory (Upstash Redis) ────────────────────────────────────────────

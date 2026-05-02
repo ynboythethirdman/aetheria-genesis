@@ -52,9 +52,14 @@ function getRedis() {
   }
   if (!config.redis.url || !Redis) return null;
   if (redis) return null; // Connection in progress, use fallback until ready
-  const client = new Redis(config.redis.url, {
+  // Upstash requires TLS — upgrade redis:// to rediss:// if needed
+  let redisUrl = config.redis.url;
+  if (redisUrl.includes('upstash.io') && redisUrl.startsWith('redis://')) {
+    redisUrl = redisUrl.replace('redis://', 'rediss://');
+  }
+  const client = new Redis(redisUrl, {
     password: config.redis.token || undefined,
-    tls: config.redis.url.startsWith('rediss://') ? {} : undefined,
+    tls: redisUrl.startsWith('rediss://') ? {} : undefined,
     maxRetriesPerRequest: 2,
     lazyConnect: true,
   });
