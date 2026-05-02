@@ -189,11 +189,11 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
         // Record observation for all bots
         recordChatObservation(bot.social, msg.sender, msg.text);
 
-        // Only the designated command bot processes God Console commands
-        // to avoid toggles firing N times and emotes duplicating
-        if (isCommandBot) {
-          const command = parseCommand(msg.sender, msg.text, config.roblox.ownerUsername);
-          if (command) {
+        // All bots detect God Console commands to avoid responding to them,
+        // but only the designated command bot actually executes them
+        const command = parseCommand(msg.sender, msg.text, config.roblox.ownerUsername);
+        if (command) {
+          if (isCommandBot) {
             const result = executeCommand(command, squadState, eventBus);
             if (result.handled) {
               console.log(`[GodConsole] ${command.name}: ${result.response}`);
@@ -207,9 +207,9 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
                   }
                 }
               }
-              continue;
             }
           }
+          continue;
         }
 
         // Generate response if appropriate

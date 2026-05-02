@@ -375,9 +375,10 @@ async function executeMovement(controller, moveAction) {
           await page.keyboard.press('Escape');
           await sleep(moveAction.duration || 1000);
           await page.keyboard.press('Escape');
+        } else {
+          // Otherwise just wait
+          await sleep(moveAction.duration || 1000);
         }
-        // Otherwise just wait
-        await sleep(moveAction.duration || 1000);
         break;
 
       default:
