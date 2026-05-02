@@ -9,6 +9,7 @@
 const { generateResponse, generateProactiveComment, generateDeflection, getRandomJoke } = require('../brain/chat');
 const { getTypingDelay, chance, randomPick, randomBetween } = require('../utils/timing');
 const config = require('../config');
+const { getSquad } = require('../personas/squad');
 
 // Bot-detection phrases that trigger deflection (substring match)
 const BOT_KEYWORDS = [
@@ -27,8 +28,16 @@ const BOT_KEYWORDS_EXACT = ['bot', 'bots', 'ai'];
  * @returns {object} Social controller instance
  */
 function createSocialController(persona) {
+  // Build a set of all known squad identifiers (usernames + display names)
+  const squadIdentifiers = new Set();
+  for (const member of getSquad()) {
+    squadIdentifiers.add(member.username.toLowerCase());
+    squadIdentifiers.add(member.displayName.toLowerCase());
+  }
+
   return {
     persona,
+    squadIdentifiers,
     lastChatTime: 0,
     consecutiveMessages: 0,
     recentMessages: [],          // Ring buffer of recent sent messages
@@ -64,8 +73,7 @@ function shouldRespond(controller, sender, message) {
   }
 
   // Don't respond to ourselves or other squad members
-  const squadNames = ['zachy_vibs', 'luna_sky7', 'not_jason'];
-  if (squadNames.includes(sender)) return false;
+  if (controller.squadIdentifiers.has(sender.toLowerCase())) return false;
 
   // Don't repeat exact messages we've recently sent
   const lowerMsg = message.toLowerCase();
@@ -281,6 +289,13 @@ function getJokeComment(controller) {
   return { text: joke, delay };
 }
 
+/**
+ * Register an additional squad identifier at runtime (e.g. auto-created username).
+ */
+function addSquadIdentifier(controller, name) {
+  controller.squadIdentifiers.add(name.toLowerCase());
+}
+
 module.exports = {
   createSocialController,
   shouldRespond,
@@ -290,4 +305,5 @@ module.exports = {
   recordChatObservation,
   setChatty,
   isBotAccusation,
+  addSquadIdentifier,
 };

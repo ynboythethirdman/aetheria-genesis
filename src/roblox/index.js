@@ -16,7 +16,7 @@ const config = require('./config');
 const { getSquad } = require('./personas/squad');
 const { createBrowserController, launch, login, createAccount, changeDisplayName, sendFriendRequest, joinGame, joinOwnerGame, sendChat, readChat, executeMovement, performEmote, followPlayer, isKicked, shutdown } = require('./browser/automation');
 const { createMovementController, getNextMovement, MOVE_STATE, setState } = require('./behavior/movement');
-const { createSocialController, getResponse, getProactiveComment, getJokeComment, recordChatObservation } = require('./behavior/social');
+const { createSocialController, getResponse, getProactiveComment, getJokeComment, recordChatObservation, addSquadIdentifier } = require('./behavior/social');
 const { createStealthController, maybeHumanError, handleKick, markRejoined } = require('./behavior/stealth');
 const { parseCommand, executeCommand } = require('./commands/godConsole');
 const { sleep, randomDelay, randomBetween, chance } = require('./utils/timing');
@@ -125,6 +125,10 @@ async function main() {
 
         if (created) {
           console.log(`[VibeSquad] ${bot.persona.username} account created as: ${autoUsername}`);
+          // Register auto-created username with all bots' social controllers
+          for (const b of bots) {
+            addSquadIdentifier(b.social, autoUsername);
+          }
           // Set display name to metro-themed name
           await changeDisplayName(bot.browser, bot.persona.displayName);
         } else {
