@@ -14,7 +14,9 @@
 const { EventEmitter } = require('events');
 const config = require('./config');
 const { getSquad } = require('./personas/squad');
-const { createBrowserController, launch, login, createAccount, changeDisplayName, sendFriendRequest, joinGame, joinOwnerGame, sendChat, readChat, executeMovement, performEmote, followPlayer, isKicked, shutdown } = require('./browser/automation');
+const { createBrowserController, launch, login, createAccount, changeDisplayName, sendFriendRequest, joinGame, joinOwnerGame, sendChat, readChat, executeMovement, performEmote, followPlayer, isKicked, shutdown, saveCookies, loadCookies } = require('./browser/automation');
+const path = require('path');
+const fs = require('fs');
 const { createMovementController, getNextMovement, MOVE_STATE, setState } = require('./behavior/movement');
 const { createSocialController, getResponse, getProactiveComment, getJokeComment, recordChatObservation, addSquadIdentifier } = require('./behavior/social');
 const { createStealthController, maybeHumanError, handleKick, markRejoined } = require('./behavior/stealth');
@@ -98,8 +100,26 @@ async function main() {
       console.log(`[VibeSquad] Launching ${bot.persona.username}...`);
       await launch(bot.browser);
 
-      // Auth flow: cookie > password > auto-create account
-      if (bot.credentials.cookie) {
+      // Auth flow: saved cookies > env cookie > password > auto-create account
+      const cookieDir = path.join(__dirname, '..', '..', '.vibe-cookies');
+      const cookiePath = path.join(cookieDir, `${bot.persona.username}.json`);
+
+      if (fs.existsSync(cookiePath)) {
+        // Reuse saved session from a previous run
+        const loaded = await loadCookies(bot.browser, cookiePath);
+        if (loaded) {
+          console.log(`[VibeSquad] ${bot.persona.username} restored saved session`);
+          // Navigate to Roblox to activate session
+          await bot.browser.page.goto('https://www.roblox.com/home', { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+          const url = bot.browser.page.url();
+          if (url.includes('/home') || url.includes('/discover')) {
+            console.log(`[VibeSquad] ${bot.persona.username} session is valid`);
+          } else {
+            console.log(`[VibeSquad] ${bot.persona.username} saved session expired — will re-create`);
+            fs.unlinkSync(cookiePath);
+          }
+        }
+      } else if (bot.credentials.cookie) {
         await bot.browser.context.addCookies([{
           name: '.ROBLOSECURITY',
           value: bot.credentials.cookie,
@@ -109,6 +129,7 @@ async function main() {
           secure: true,
         }]);
         console.log(`[VibeSquad] ${bot.persona.username} using cookie auth`);
+        await saveCookies(bot.browser, cookiePath);
       } else if (bot.credentials.password) {
         const loggedIn = await login(bot.browser);
         if (!loggedIn) {
@@ -116,6 +137,7 @@ async function main() {
           await shutdown(bot.browser);
           continue;
         }
+        await saveCookies(bot.browser, cookiePath);
       } else {
         // No credentials — try auto account creation
         console.log(`[VibeSquad] ${bot.persona.username} — no credentials, attempting auto signup...`);
@@ -135,6 +157,8 @@ async function main() {
 
         if (created) {
           console.log(`[VibeSquad] ${bot.persona.username} account created as: ${autoUsername}`);
+          // Save cookies so we don't re-create next time
+          await saveCookies(bot.browser, cookiePath);
           // Register auto-created username with all bots' social controllers
           for (const b of bots) {
             addSquadIdentifier(b.social, autoUsername);

@@ -784,7 +784,7 @@ async function resolveUserId(controller, username) {
  * @returns {Promise<{placeId: number, gameId: string}|null>}
  */
 async function getPlayerPresence(controller, userId) {
-  const { page } = controller;
+  const { page, persona } = controller;
   try {
     const resp = await page.evaluate(async (uid) => {
       const r = await fetch('https://presence.roblox.com/v1/presence/users', {
@@ -792,15 +792,24 @@ async function getPlayerPresence(controller, userId) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userIds: [uid] }),
       });
-      if (!r.ok) return null;
+      if (!r.ok) return { error: `HTTP ${r.status}` };
       const data = await r.json();
-      if (!data.userPresences || data.userPresences.length === 0) return null;
+      if (!data.userPresences || data.userPresences.length === 0) return { error: 'no presences' };
       const p = data.userPresences[0];
-      if (p.userPresenceType !== 2 || !p.placeId) return null;
-      return { placeId: p.placeId, rootPlaceId: p.rootPlaceId, gameId: p.gameId };
+      return { type: p.userPresenceType, placeId: p.placeId, rootPlaceId: p.rootPlaceId, gameId: p.gameId, lastLocation: p.lastLocation };
     }, userId);
-    return resp;
-  } catch {
+
+    if (resp && resp.error) {
+      console.log(`[Browser:${persona.username}] Presence API: ${resp.error}`);
+      return null;
+    }
+    if (!resp || resp.type !== 2 || !resp.placeId) {
+      console.log(`[Browser:${persona.username}] Presence: type=${resp?.type} placeId=${resp?.placeId} loc=${resp?.lastLocation}`);
+      return null;
+    }
+    return { placeId: resp.placeId, rootPlaceId: resp.rootPlaceId, gameId: resp.gameId };
+  } catch (err) {
+    console.log(`[Browser:${persona.username}] Presence error: ${err.message}`);
     return null;
   }
 }
@@ -834,6 +843,41 @@ async function joinOwnerGame(controller, ownerUsername) {
   return joinGame(controller, gameUrl);
 }
 
+/**
+ * Save browser cookies to a JSON file for session persistence.
+ */
+async function saveCookies(controller, filePath) {
+  const fs = require('fs');
+  const path = require('path');
+  try {
+    const cookies = await controller.context.cookies();
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(cookies, null, 2));
+    console.log(`[Browser:${controller.persona.username}] Cookies saved to ${filePath}`);
+  } catch (err) {
+    console.error(`[Browser:${controller.persona.username}] Failed to save cookies: ${err.message}`);
+  }
+}
+
+/**
+ * Load cookies from a JSON file into the browser context.
+ */
+async function loadCookies(controller, filePath) {
+  const fs = require('fs');
+  try {
+    if (!fs.existsSync(filePath)) return false;
+    const cookies = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (!cookies || cookies.length === 0) return false;
+    await controller.context.addCookies(cookies);
+    console.log(`[Browser:${controller.persona.username}] Loaded ${cookies.length} cookies from ${filePath}`);
+    return true;
+  } catch (err) {
+    console.error(`[Browser:${controller.persona.username}] Failed to load cookies: ${err.message}`);
+    return false;
+  }
+}
+
 module.exports = {
   createBrowserController,
   launch,
@@ -852,5 +896,7 @@ module.exports = {
   followPlayer,
   isKicked,
   shutdown,
+  saveCookies,
+  loadCookies,
   SELECTORS,
 };

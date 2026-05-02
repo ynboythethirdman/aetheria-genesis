@@ -3,3 +3,4 @@ node_modules/
 src/agents/souls.json
 *.log
 .replit.history
+.vibe-cookies/
