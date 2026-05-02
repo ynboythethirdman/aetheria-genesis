@@ -25,7 +25,7 @@ module.exports = {
   llm: {
     provider: process.env.LLM_PROVIDER || 'groq',           // 'groq' | 'openrouter'
     apiKey: process.env.LLM_API_KEY || '',
-    model: process.env.LLM_MODEL || 'llama-3.3-70b-versatile',
+    model: process.env.LLM_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
     maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '150', 10),
     temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.9'),
     rateLimit: parseInt(process.env.LLM_RATE_LIMIT_MS || '1000', 10),
