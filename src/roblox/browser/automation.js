@@ -620,9 +620,15 @@ async function createAccount(controller, accountInfo) {
     }
     await randomDelay(300, 600);
 
-    // Submit signup
+    // Wait for the submit button to become enabled
     const signupBtn = await page.$('button[name="signupSubmit"]');
     if (signupBtn) {
+      // Wait up to 10s for the button to be enabled (Roblox validates fields)
+      for (let w = 0; w < 20; w++) {
+        const isDisabled = await signupBtn.evaluate((el) => el.disabled);
+        if (!isDisabled) break;
+        await sleep(500);
+      }
       await humanClick(controller, signupBtn);
       console.log(`[Browser:${persona.username}] Signup submitted for ${accountInfo.username}`);
     }
@@ -650,12 +656,13 @@ async function createAccount(controller, accountInfo) {
       return true;
     }
 
-    // Check for error messages
-    const errorEl = await page.$('.alert-warning, .signup-error, [class*="error"]');
+    // Check for meaningful error messages (avoid matching generic CSS class names)
+    const errorEl = await page.$('.alert-warning, .signup-error-message, #GeneralErrorText');
     if (errorEl) {
       const errorText = await errorEl.textContent();
-      console.log(`[Browser:${persona.username}] Signup error: ${errorText.trim()}`);
-      // Username might be taken — try adding random digits
+      if (errorText.trim()) {
+        console.log(`[Browser:${persona.username}] Signup error: ${errorText.trim()}`);
+      }
       return false;
     }
 
