@@ -14,13 +14,15 @@
 const { EventEmitter } = require('events');
 const config = require('./config');
 const { getSquad } = require('./personas/squad');
-const { createBrowserController, launch, login, sendFriendRequest, joinGame, sendChat, readChat, executeMovement, performEmote, isKicked, shutdown } = require('./browser/automation');
+const { createBrowserController, launch, login, createAccount, changeDisplayName, sendFriendRequest, joinGame, sendChat, readChat, executeMovement, performEmote, followPlayer, isKicked, shutdown } = require('./browser/automation');
 const { createMovementController, getNextMovement, MOVE_STATE, setState } = require('./behavior/movement');
 const { createSocialController, getResponse, getProactiveComment, recordChatObservation } = require('./behavior/social');
 const { createStealthController, maybeHumanError, handleKick, markRejoined } = require('./behavior/stealth');
 const { parseCommand, executeCommand } = require('./commands/godConsole');
-const { sleep, randomDelay, randomBetween } = require('./utils/timing');
+const { sleep, randomDelay, randomBetween, chance } = require('./utils/timing');
+const { getRandomJoke } = require('./brain/chat');
 const { createVibeSquadDashboard } = require('./dashboard/server');
+const crypto = require('crypto');
 
 EventEmitter.defaultMaxListeners = 50;
 
@@ -89,16 +91,8 @@ async function main() {
       console.log(`[VibeSquad] Launching ${bot.persona.username}...`);
       await launch(bot.browser);
 
-      // Login if credentials are provided
-      if (bot.credentials.password) {
-        const loggedIn = await login(bot.browser);
-        if (!loggedIn) {
-          console.error(`[VibeSquad] ${bot.persona.username} login failed — skipping`);
-          await shutdown(bot.browser);
-          continue;
-        }
-      } else if (bot.credentials.cookie) {
-        // Set cookie directly for pre-authenticated sessions
+      // Auth flow: cookie > password > auto-create account
+      if (bot.credentials.cookie) {
         await bot.browser.context.addCookies([{
           name: '.ROBLOSECURITY',
           value: bot.credentials.cookie,
@@ -108,8 +102,35 @@ async function main() {
           secure: true,
         }]);
         console.log(`[VibeSquad] ${bot.persona.username} using cookie auth`);
+      } else if (bot.credentials.password) {
+        const loggedIn = await login(bot.browser);
+        if (!loggedIn) {
+          console.error(`[VibeSquad] ${bot.persona.username} login failed — skipping`);
+          await shutdown(bot.browser);
+          continue;
+        }
       } else {
-        console.warn(`[VibeSquad] ${bot.persona.username} has no credentials — running in limited mode`);
+        // No credentials — try auto account creation
+        console.log(`[VibeSquad] ${bot.persona.username} — no credentials, attempting auto signup...`);
+        const suffix = crypto.randomBytes(3).toString('hex');
+        const autoUsername = `${bot.persona.username}_${suffix}`;
+        const autoPassword = `VibeSquad_${crypto.randomBytes(6).toString('base64url')}!`;
+
+        const created = await createAccount(bot.browser, {
+          username: autoUsername,
+          password: autoPassword,
+          birthMonth: randomBetween(1, 12),
+          birthDay: randomBetween(1, 28),
+          birthYear: randomBetween(2003, 2007),
+        });
+
+        if (created) {
+          console.log(`[VibeSquad] ${bot.persona.username} account created as: ${autoUsername}`);
+          // Set display name to metro-themed name
+          await changeDisplayName(bot.browser, bot.persona.displayName);
+        } else {
+          console.warn(`[VibeSquad] ${bot.persona.username} auto-signup failed (likely CAPTCHA) — running in limited mode`);
+        }
       }
 
       // Send friend request to owner (T0rzyz)
@@ -232,15 +253,24 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
         }
       }
 
-      // Occasionally make proactive comments
-      const proactive = await getProactiveComment(bot.social, {
-        nearbyPlayers: [],
-        gameContext: 'hanging out in a Roblox game',
-      });
+      // Occasionally make proactive comments or jokes
+      if (chance(0.15)) {
+        // Drop a random joke from the persona's joke list
+        const joke = getRandomJoke(bot.persona);
+        if (joke) {
+          await sleep(randomBetween(1000, 3000));
+          await sendChat(bot.browser, joke);
+        }
+      } else {
+        const proactive = await getProactiveComment(bot.social, {
+          nearbyPlayers: [],
+          gameContext: 'hanging out in a Roblox game',
+        });
 
-      if (proactive) {
-        await sleep(proactive.delay);
-        await sendChat(bot.browser, proactive.text);
+        if (proactive) {
+          await sleep(proactive.delay);
+          await sendChat(bot.browser, proactive.text);
+        }
       }
     } catch (err) {
       console.error(`[ChatLoop:${bot.persona.username}] Error: ${err.message}`);
@@ -258,8 +288,16 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
 // ── Loop: Movement ──────────────────────────────────────────────────
 
 function startMovementLoop(bot, squadState) {
+  let followAttemptCounter = 0;
+
   const tick = async () => {
     try {
+      // Periodically try to click-follow the owner in tethered/regrouping mode
+      followAttemptCounter++;
+      if (bot.movement.state !== 'free' && followAttemptCounter % 5 === 0) {
+        await followPlayer(bot.browser, config.roblox.ownerUsername);
+      }
+
       const moveAction = getNextMovement(
         bot.movement,
         squadState.ownerPosition,

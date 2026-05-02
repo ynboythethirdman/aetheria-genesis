@@ -558,16 +558,199 @@ function getRandomTimezone() {
   return zones[Math.floor(Math.random() * zones.length)];
 }
 
+/**
+ * Auto-create a Roblox account via the signup page.
+ * Fills birthday, username, password and submits.
+ * CAPTCHAs may require manual intervention.
+ *
+ * @param {object} controller
+ * @param {object} accountInfo - { username, password, birthMonth, birthDay, birthYear }
+ * @returns {Promise<boolean>} Whether signup completed (may still need CAPTCHA)
+ */
+async function createAccount(controller, accountInfo) {
+  const { page, persona } = controller;
+
+  try {
+    await page.goto('https://www.roblox.com/', { waitUntil: 'networkidle', timeout: 30000 });
+    await randomDelay(2000, 4000);
+    await dismissPopups(controller);
+
+    // Fill birthday selects
+    const monthSelect = await page.$('#MonthDropdown, select[id*="Month"]');
+    if (monthSelect) {
+      await monthSelect.selectOption(String(accountInfo.birthMonth || 6));
+      await randomDelay(300, 600);
+    }
+
+    const daySelect = await page.$('#DayDropdown, select[id*="Day"]');
+    if (daySelect) {
+      await daySelect.selectOption(String(accountInfo.birthDay || 15));
+      await randomDelay(300, 600);
+    }
+
+    const yearSelect = await page.$('#YearDropdown, select[id*="Year"]');
+    if (yearSelect) {
+      await yearSelect.selectOption(String(accountInfo.birthYear || 2005));
+      await randomDelay(500, 1000);
+    }
+
+    // Fill username
+    const usernameInput = await page.$('#signup-username, input[name="signupUsername"]');
+    if (usernameInput) {
+      await humanType(controller, usernameInput, accountInfo.username);
+      await randomDelay(1000, 2000);
+    }
+
+    // Fill password
+    const passwordInput = await page.$('#signup-password, input[name="signupPassword"]');
+    if (passwordInput) {
+      await humanType(controller, passwordInput, accountInfo.password);
+      await randomDelay(500, 1000);
+    }
+
+    // Select gender (optional, random pick)
+    if (chance(0.5)) {
+      const maleBtn = await page.$('#MaleButton, button[id*="male"]');
+      if (maleBtn) await humanClick(controller, maleBtn);
+    } else {
+      const femaleBtn = await page.$('#FemaleButton, button[id*="female"]');
+      if (femaleBtn) await humanClick(controller, femaleBtn);
+    }
+    await randomDelay(300, 600);
+
+    // Submit signup
+    const signupBtn = await page.$('#signup-button, button[id*="signup"]');
+    if (signupBtn) {
+      await humanClick(controller, signupBtn);
+      console.log(`[Browser:${persona.username}] Signup submitted for ${accountInfo.username}`);
+    }
+
+    // Wait for CAPTCHA or redirect
+    await randomDelay(5000, 10000);
+
+    // Check if CAPTCHA appeared
+    const captchaFrame = await page.$('iframe[src*="captcha"], iframe[src*="funcaptcha"], #captcha-container');
+    if (captchaFrame) {
+      console.log(`[Browser:${persona.username}] CAPTCHA detected — waiting for manual solve or auto-solver...`);
+      // Wait up to 120s for CAPTCHA to be solved
+      await page.waitForNavigation({ timeout: 120000 }).catch(() => {
+        console.log(`[Browser:${persona.username}] CAPTCHA timeout — may need manual intervention`);
+      });
+    }
+
+    // Check if we landed on the home page (success)
+    const currentUrl = page.url();
+    if (currentUrl.includes('/home') || currentUrl.includes('/discover')) {
+      console.log(`[Browser:${persona.username}] Account created: ${accountInfo.username}`);
+      return true;
+    }
+
+    // Check for error messages
+    const errorEl = await page.$('.alert-warning, .signup-error, [class*="error"]');
+    if (errorEl) {
+      const errorText = await errorEl.textContent();
+      console.log(`[Browser:${persona.username}] Signup error: ${errorText.trim()}`);
+      // Username might be taken — try adding random digits
+      return false;
+    }
+
+    return false;
+  } catch (err) {
+    console.error(`[Browser:${persona.username}] Account creation error: ${err.message}`);
+    return false;
+  }
+}
+
+/**
+ * Change the display name on the Roblox account.
+ *
+ * @param {object} controller
+ * @param {string} newDisplayName
+ * @returns {Promise<boolean>}
+ */
+async function changeDisplayName(controller, newDisplayName) {
+  const { page, persona } = controller;
+
+  try {
+    await page.goto('https://www.roblox.com/my/account#!/info', {
+      waitUntil: 'networkidle',
+      timeout: 20000,
+    });
+    await randomDelay(2000, 3000);
+
+    // Click the display name edit button/pen icon
+    const editBtn = await page.$('button[class*="display-name"] span[class*="edit"], a[href*="display-name"], .display-name-edit');
+    if (editBtn) {
+      await humanClick(controller, editBtn);
+      await randomDelay(500, 1000);
+    }
+
+    // Find and clear the display name input
+    const nameInput = await page.$('input[id*="display-name"], input[name*="displayName"], input[placeholder*="Display Name"]');
+    if (nameInput) {
+      await nameInput.click({ clickCount: 3 });
+      await randomDelay(100, 300);
+      await humanType(controller, nameInput, newDisplayName);
+      await randomDelay(500, 1000);
+    }
+
+    // Save
+    const saveBtn = await page.$('button:has-text("Save"), button[class*="save"], button[type="submit"]');
+    if (saveBtn) {
+      await humanClick(controller, saveBtn);
+      await randomDelay(2000, 3000);
+      console.log(`[Browser:${persona.username}] Display name changed to: ${newDisplayName}`);
+      return true;
+    }
+
+    return false;
+  } catch (err) {
+    console.error(`[Browser:${persona.username}] Display name change failed: ${err.message}`);
+    return false;
+  }
+}
+
+/**
+ * Follow a player in-game by locating their character on screen.
+ * Uses Roblox's click-to-walk toward a player's nameplate.
+ *
+ * @param {object} controller
+ * @param {string} targetUsername - The player to follow
+ * @returns {Promise<boolean>}
+ */
+async function followPlayer(controller, targetUsername) {
+  const { page, persona } = controller;
+
+  try {
+    // Try to click on the player's name in the player list to follow
+    const playerItem = await page.$(`text=${targetUsername}`);
+    if (playerItem) {
+      await humanClick(controller, playerItem);
+      await randomDelay(200, 500);
+      return true;
+    }
+
+    // Fallback: walk forward toward the general direction
+    // (The tether system handles the actual following logic)
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   createBrowserController,
   launch,
   login,
+  createAccount,
+  changeDisplayName,
   sendFriendRequest,
   joinGame,
   sendChat,
   readChat,
   executeMovement,
   performEmote,
+  followPlayer,
   isKicked,
   shutdown,
   SELECTORS,

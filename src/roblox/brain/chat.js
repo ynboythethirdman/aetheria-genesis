@@ -30,6 +30,10 @@ STRICT RULES FOR YOUR RESPONSES:
 - If you don't know something, say "${randomPick(persona.speechStyle.fillers)}" or something vague.
 - Your interests: ${persona.interests.join(', ')}
 - You can use these emojis sparingly: ${style.emojis.join(' ')}
+- Use "?" naturally when asking questions or being confused. Ask questions sometimes.
+- Make casual jokes and be funny. Drop random humor when it feels natural.
+- Be curious about other players. Ask them about their avatar, what they're doing, etc.
+- If playing Adopt Me, talk about pets, trading, houses, babies, etc.
 
 RESPOND WITH ONLY THE CHAT MESSAGE. No quotes, no labels, no explanations. Just the raw message.`;
 }
@@ -96,7 +100,8 @@ async function generateProactiveComment(persona, context) {
   }
 
   userPrompt += '\nSay something casual. Could be about the game, a random thought, '
-    + 'or a comment to someone nearby. Keep it very short.';
+    + 'a question to someone nearby, a joke, or a comment on what\'s happening. '
+    + 'Ask questions sometimes (use "?"). Make jokes sometimes. Keep it very short.';
 
   const response = await think(systemPrompt, userPrompt);
   return postProcess(persona, response);
@@ -129,6 +134,13 @@ function postProcess(persona, raw) {
 
   // Strip trailing periods (casual players don't end with periods)
   text = text.replace(/\.$/g, '');
+
+  // Occasionally add "?" to the end if the persona likes questions
+  if (persona.speechStyle.questionMarkChance && !text.includes('?') && chance(persona.speechStyle.questionMarkChance)) {
+    if (text.match(/^(wait|who|what|why|how|where|when|is|does|do|are|can|should|anyone|did)/i)) {
+      text += '?';
+    }
+  }
 
   // Truncate to max sentence length
   const words = text.split(/\s+/);
@@ -187,10 +199,20 @@ function injectTypo(text) {
   return words.join(' ');
 }
 
+/**
+ * Pick a random joke from the persona's joke list.
+ * Returns null if the persona has no jokes.
+ */
+function getRandomJoke(persona) {
+  if (!persona.jokes || persona.jokes.length === 0) return null;
+  return randomPick(persona.jokes);
+}
+
 module.exports = {
   generateResponse,
   generateProactiveComment,
   generateDeflection,
+  getRandomJoke,
   buildSystemPrompt,
   postProcess,
 };
