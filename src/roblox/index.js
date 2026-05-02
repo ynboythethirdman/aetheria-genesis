@@ -285,12 +285,16 @@ function startStealthLoop(bot, squadState) {
       const error = maybeHumanError(bot.stealth);
       if (error) {
         console.log(`[Stealth:${bot.persona.username}] Human error: ${error.description}`);
-        await executeMovement(bot.browser, {
-          type: 'walk',
-          direction: error.keys,
-          duration: error.duration,
-          sprint: false,
-        });
+        // Map each error type to the correct executeMovement action
+        let moveAction;
+        if (error.type === 'jump_early') {
+          moveAction = { type: 'jump', duration: error.duration };
+        } else if (error.type === 'menu_check') {
+          moveAction = { type: 'idle', action: 'check_menu', duration: error.duration };
+        } else {
+          moveAction = { type: 'walk', direction: error.keys, duration: error.duration, sprint: false };
+        }
+        await executeMovement(bot.browser, moveAction);
       }
     } catch (err) {
       console.error(`[StealthLoop:${bot.persona.username}] Error: ${err.message}`);

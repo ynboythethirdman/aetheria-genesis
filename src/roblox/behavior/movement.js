@@ -188,8 +188,8 @@ function generateHumanError() {
     { type: 'wall_bump', description: 'walk into wall briefly', keys: ['w'], duration: randomBetween(300, 800) },
     { type: 'pause', description: 'stop suddenly', keys: [], duration: randomBetween(1000, 3000) },
     { type: 'wrong_direction', description: 'walk wrong way then correct', keys: ['a'], duration: randomBetween(200, 500) },
-    { type: 'jump_early', description: 'random unnecessary jump', keys: ['space'], duration: 200 },
-    { type: 'menu_check', description: 'pause to check something', keys: ['esc'], duration: randomBetween(800, 2000) },
+    { type: 'jump_early', description: 'random unnecessary jump', keys: [' '], duration: 200 },
+    { type: 'menu_check', description: 'pause to check something', keys: ['Escape'], duration: randomBetween(800, 2000) },
   ];
   return randomPick(errors);
 }
