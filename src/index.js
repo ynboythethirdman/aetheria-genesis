@@ -80,7 +80,8 @@ async function main() {
   console.log(`[Genesis] Economy initialized: ${bank.wallets.size} wallets`);
 
   // ── 4. Create bot manager ─────────────────────────────────────────
-  const botManager = new BotManager(souls, eventBus, systems);
+  const activeSouls = souls.slice(0, config.agents.count);
+  const botManager = new BotManager(activeSouls, eventBus, systems);
 
   // ── 5. Start dashboard ────────────────────────────────────────────
   const dashboard = createDashboard(botManager, eventBus, systems);
