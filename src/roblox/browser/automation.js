@@ -575,34 +575,35 @@ async function createAccount(controller, accountInfo) {
     await randomDelay(2000, 4000);
     await dismissPopups(controller);
 
-    // Fill birthday selects
-    const monthSelect = await page.$('#MonthDropdown, select[id*="Month"]');
+    // Fill birthday selects (Roblox uses name-based selects with string values)
+    const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthSelect = await page.$('select[name="birthdayMonth"]');
     if (monthSelect) {
-      await monthSelect.selectOption(String(accountInfo.birthMonth || 6));
+      await monthSelect.selectOption(MONTHS[accountInfo.birthMonth || 6]);
       await randomDelay(300, 600);
     }
 
-    const daySelect = await page.$('#DayDropdown, select[id*="Day"]');
+    const daySelect = await page.$('select[name="birthdayDay"]');
     if (daySelect) {
-      await daySelect.selectOption(String(accountInfo.birthDay || 15));
+      await daySelect.selectOption(String(accountInfo.birthDay || 15).padStart(2, '0'));
       await randomDelay(300, 600);
     }
 
-    const yearSelect = await page.$('#YearDropdown, select[id*="Year"]');
+    const yearSelect = await page.$('select[name="birthdayYear"]');
     if (yearSelect) {
       await yearSelect.selectOption(String(accountInfo.birthYear || 2005));
       await randomDelay(500, 1000);
     }
 
     // Fill username
-    const usernameInput = await page.$('#signup-username, input[name="signupUsername"]');
+    const usernameInput = await page.$('input[name="signupUsername"]');
     if (usernameInput) {
       await humanType(controller, usernameInput, accountInfo.username);
       await randomDelay(1000, 2000);
     }
 
     // Fill password
-    const passwordInput = await page.$('#signup-password, input[name="signupPassword"]');
+    const passwordInput = await page.$('input[name="signupPassword"]');
     if (passwordInput) {
       await humanType(controller, passwordInput, accountInfo.password);
       await randomDelay(500, 1000);
@@ -610,16 +611,16 @@ async function createAccount(controller, accountInfo) {
 
     // Select gender (optional, random pick)
     if (chance(0.5)) {
-      const maleBtn = await page.$('#MaleButton, button[id*="male"]');
+      const maleBtn = await page.$('button[title="Male"]');
       if (maleBtn) await humanClick(controller, maleBtn);
     } else {
-      const femaleBtn = await page.$('#FemaleButton, button[id*="female"]');
+      const femaleBtn = await page.$('button[title="Female"]');
       if (femaleBtn) await humanClick(controller, femaleBtn);
     }
     await randomDelay(300, 600);
 
     // Submit signup
-    const signupBtn = await page.$('#signup-button, button[id*="signup"]');
+    const signupBtn = await page.$('button[name="signupSubmit"]');
     if (signupBtn) {
       await humanClick(controller, signupBtn);
       console.log(`[Browser:${persona.username}] Signup submitted for ${accountInfo.username}`);

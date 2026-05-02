@@ -397,12 +397,15 @@ function startKickWatcher(bot, squadState, eventBus) {
 
           // Attempt rejoin
           const gameUrl = config.roblox.gameUrl;
+          let rejoined = false;
           if (gameUrl) {
-            const rejoined = await joinGame(bot.browser, gameUrl);
-            if (rejoined) {
-              markRejoined(bot.stealth);
-              console.log(`[KickWatch:${bot.persona.username}] Rejoined successfully`);
-            }
+            rejoined = await joinGame(bot.browser, gameUrl);
+          } else {
+            rejoined = await joinOwnerGame(bot.browser, config.roblox.ownerUsername);
+          }
+          if (rejoined) {
+            markRejoined(bot.stealth);
+            console.log(`[KickWatch:${bot.persona.username}] Rejoined successfully`);
           }
         } else {
           console.log(`[KickWatch:${bot.persona.username}] Max kicks reached — giving up`);
@@ -434,7 +437,10 @@ function startOwnerGamePoller(activeBots) {
     try {
       // Use the first bot's browser to check presence
       const scout = activeBots[0];
-      if (!scout.isRunning) return;
+      if (!scout.isRunning) {
+        setTimeout(tick, 30000);
+        return;
+      }
 
       const joined = await joinOwnerGame(scout.browser, config.roblox.ownerUsername);
       if (joined) {
