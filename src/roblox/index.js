@@ -16,11 +16,10 @@ const config = require('./config');
 const { getSquad } = require('./personas/squad');
 const { createBrowserController, launch, login, createAccount, changeDisplayName, sendFriendRequest, joinGame, sendChat, readChat, executeMovement, performEmote, followPlayer, isKicked, shutdown } = require('./browser/automation');
 const { createMovementController, getNextMovement, MOVE_STATE, setState } = require('./behavior/movement');
-const { createSocialController, getResponse, getProactiveComment, recordChatObservation } = require('./behavior/social');
+const { createSocialController, getResponse, getProactiveComment, getJokeComment, recordChatObservation } = require('./behavior/social');
 const { createStealthController, maybeHumanError, handleKick, markRejoined } = require('./behavior/stealth');
 const { parseCommand, executeCommand } = require('./commands/godConsole');
 const { sleep, randomDelay, randomBetween, chance } = require('./utils/timing');
-const { getRandomJoke } = require('./brain/chat');
 const { createVibeSquadDashboard } = require('./dashboard/server');
 const crypto = require('crypto');
 
@@ -183,6 +182,25 @@ async function main() {
     console.log(`[VibeSquad] Chatty: ${data.enabled}`);
   });
 
+  // Handle commands from the dashboard web UI
+  eventBus.on('dashboard:command', async (data) => {
+    const command = parseCommand(config.roblox.ownerUsername, data.command, config.roblox.ownerUsername);
+    if (command) {
+      const result = executeCommand(command, squadState, eventBus);
+      if (result.handled) {
+        console.log(`[Dashboard] ${command.name}: ${result.response}`);
+        for (const action of result.actions) {
+          if (action.action === 'emote') {
+            const targetBot = squadState.bots.find((b) => b.id === action.botId);
+            if (targetBot) {
+              await performEmote(targetBot.browser, action.emote);
+            }
+          }
+        }
+      }
+    }
+  });
+
   console.log('[VibeSquad] All systems online. Listening for commands...');
   console.log(`[VibeSquad] Owner: ${config.roblox.ownerUsername}`);
   console.log(`[VibeSquad] Commands: =free | =squad | =vibe [emote] | =chatty | =status`);
@@ -247,19 +265,19 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
 
         const response = await getResponse(bot.social, msg.sender, msg.text, context);
         if (response) {
-          // Wait for typing delay (simulates human typing speed)
           await sleep(response.delay);
           await sendChat(bot.browser, response.text);
+          eventBus.emit('bot:chat', { bot: bot.persona.username, message: response.text });
         }
       }
 
       // Occasionally make proactive comments or jokes
       if (chance(0.15)) {
-        // Drop a random joke from the persona's joke list
-        const joke = getRandomJoke(bot.persona);
-        if (joke) {
-          await sleep(randomBetween(1000, 3000));
-          await sendChat(bot.browser, joke);
+        const jokeResult = getJokeComment(bot.social);
+        if (jokeResult) {
+          await sleep(jokeResult.delay);
+          await sendChat(bot.browser, jokeResult.text);
+          eventBus.emit('bot:chat', { bot: bot.persona.username, message: jokeResult.text });
         }
       } else {
         const proactive = await getProactiveComment(bot.social, {
@@ -270,15 +288,16 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
         if (proactive) {
           await sleep(proactive.delay);
           await sendChat(bot.browser, proactive.text);
+          eventBus.emit('bot:chat', { bot: bot.persona.username, message: proactive.text });
         }
       }
     } catch (err) {
       console.error(`[ChatLoop:${bot.persona.username}] Error: ${err.message}`);
     }
 
-    // Schedule next tick with jitter
+    // Schedule next tick with jitter (stop if bot was permanently kicked)
     const interval = config.squad.tickIntervalMs + randomBetween(-500, 500);
-    setTimeout(tick, interval);
+    if (bot.isRunning) setTimeout(tick, interval);
   };
 
   // Start with random offset so bots don't tick in sync
@@ -310,7 +329,7 @@ function startMovementLoop(bot, squadState) {
     }
 
     const interval = randomBetween(1500, 4000);
-    setTimeout(tick, interval);
+    if (bot.isRunning) setTimeout(tick, interval);
   };
 
   setTimeout(tick, randomBetween(2000, 6000));
@@ -321,7 +340,7 @@ function startMovementLoop(bot, squadState) {
 function startStealthLoop(bot, squadState) {
   const tick = async () => {
     if (!squadState.stealthMode) {
-      setTimeout(tick, 10000);
+      if (bot.isRunning) setTimeout(tick, 10000);
       return;
     }
 
@@ -345,7 +364,7 @@ function startStealthLoop(bot, squadState) {
     }
 
     const interval = randomBetween(8000, 20000);
-    setTimeout(tick, interval);
+    if (bot.isRunning) setTimeout(tick, interval);
   };
 
   setTimeout(tick, randomBetween(5000, 15000));
@@ -359,6 +378,7 @@ function startKickWatcher(bot, squadState, eventBus) {
       const kicked = await isKicked(bot.browser);
       if (kicked) {
         console.log(`[KickWatch:${bot.persona.username}] Detected kick!`);
+        eventBus.emit('bot:kick', { bot: bot.persona.username });
         const plan = handleKick(bot.stealth);
 
         if (plan.shouldRejoin) {

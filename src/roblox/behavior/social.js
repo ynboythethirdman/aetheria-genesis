@@ -6,7 +6,7 @@
  * casual human players.
  */
 
-const { generateResponse, generateProactiveComment, generateDeflection } = require('../brain/chat');
+const { generateResponse, generateProactiveComment, generateDeflection, getRandomJoke } = require('../brain/chat');
 const { getTypingDelay, chance, randomPick, randomBetween } = require('../utils/timing');
 const config = require('../config');
 
@@ -254,11 +254,39 @@ function setChatty(controller, enabled) {
   controller.isChatty = enabled;
 }
 
+/**
+ * Get a joke comment routed through cooldown/dedup/state tracking.
+ *
+ * @param {object} controller - Social controller
+ * @returns {{text: string, delay: number} | null}
+ */
+function getJokeComment(controller) {
+  const now = Date.now();
+  const { persona } = controller;
+
+  const cooldown = controller.isChatty
+    ? config.squad.chatCooldownMs
+    : config.squad.chatCooldownMs * 3;
+
+  if (now - controller.lastChatTime < cooldown) return null;
+
+  const joke = getRandomJoke(persona);
+  if (!joke || isDuplicate(controller, joke)) return null;
+
+  const delay = getTypingDelay(joke);
+  controller.lastChatTime = Date.now() + delay;
+  controller.consecutiveMessages++;
+  recordSentMessage(controller, joke);
+
+  return { text: joke, delay };
+}
+
 module.exports = {
   createSocialController,
   shouldRespond,
   getResponse,
   getProactiveComment,
+  getJokeComment,
   recordChatObservation,
   setChatty,
   isBotAccusation,
