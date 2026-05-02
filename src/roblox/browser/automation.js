@@ -11,6 +11,7 @@ const { chromium } = require('playwright');
 const { getRandomViewport, addMouseNoise, generateMousePath, getKeystrokeDelays } = require('../behavior/stealth');
 const { sleep, randomDelay, randomBetween, chance } = require('../utils/timing');
 const config = require('../config');
+const { solveFunCaptcha } = require('./captchaSolver');
 
 // Roblox UI selectors (may need updating as Roblox changes their UI)
 const SELECTORS = {
@@ -630,13 +631,16 @@ async function createAccount(controller, accountInfo) {
     await randomDelay(5000, 10000);
 
     // Check if CAPTCHA appeared
-    const captchaFrame = await page.$('iframe[src*="captcha"], iframe[src*="funcaptcha"], #captcha-container');
+    const captchaFrame = await page.$('iframe[src*="captcha"], iframe[src*="funcaptcha"], iframe[src*="arkoselabs"], #captcha-container');
     if (captchaFrame) {
-      console.log(`[Browser:${persona.username}] CAPTCHA detected — waiting for manual solve or auto-solver...`);
-      // Wait up to 120s for CAPTCHA to be solved
-      await page.waitForNavigation({ timeout: 120000 }).catch(() => {
-        console.log(`[Browser:${persona.username}] CAPTCHA timeout — may need manual intervention`);
-      });
+      console.log(`[Browser:${persona.username}] CAPTCHA detected — attempting auto-solve with OMO...`);
+      const solved = await solveFunCaptcha(controller);
+      if (!solved) {
+        console.log(`[Browser:${persona.username}] Auto-solve failed — waiting for manual solve...`);
+        await page.waitForNavigation({ timeout: 120000 }).catch(() => {
+          console.log(`[Browser:${persona.username}] CAPTCHA timeout — may need manual intervention`);
+        });
+      }
     }
 
     // Check if we landed on the home page (success)

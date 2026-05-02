@@ -42,6 +42,14 @@ module.exports = {
     rejoinDelayMs: parseInt(process.env.REJOIN_DELAY_MS || '180000', 10),
   },
 
+  // ── CAPTCHA Solver ──────────────────────────────────────────────────
+  captcha: {
+    omoCaptchaKey: process.env.OMO_CAPTCHA_KEY || '',
+    apiBase: 'https://api.omocaptcha.com/v2',
+    pollIntervalMs: 3000,
+    maxPollAttempts: 40,
+  },
+
   // ── Dashboard ───────────────────────────────────────────────────────
   dashboard: {
     port: parseInt(process.env.VIBE_DASHBOARD_PORT || '3001', 10),
