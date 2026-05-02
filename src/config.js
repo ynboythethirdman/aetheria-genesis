@@ -15,7 +15,7 @@ module.exports = {
   // ── Agent Fleet ───────────────────────────────────────────────────────
   agents: {
     count: parseInt(process.env.AGENT_COUNT || '100', 10),
-    spawnDelay: parseInt(process.env.SPAWN_DELAY_MS || '2000', 10),
+    spawnDelay: parseInt(process.env.SPAWN_DELAY_MS || '5000', 10),
     tickInterval: parseInt(process.env.TICK_INTERVAL_MS || '10000', 10),
     chatRadius: parseInt(process.env.CHAT_RADIUS || '32', 10),
     gossipChance: parseFloat(process.env.GOSSIP_CHANCE || '0.3'),
