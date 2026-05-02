@@ -59,15 +59,16 @@ function handleKick(controller) {
   controller.lastKickTime = Date.now();
   controller.isRejoining = true;
 
-  // Exponential backoff with jitter based on kick count
+  // After 5 kicks, give up
+  if (controller.kickCount >= 5) {
+    controller.isRejoining = false;
+    return { shouldRejoin: false, delayMs: 0, reason: 'max_kicks_reached' };
+  }
+
+  // Linear backoff with jitter based on kick count
   const baseDelay = config.squad.rejoinDelayMs;
   const multiplier = Math.min(controller.kickCount, 5);
   const delayMs = baseDelay * multiplier + randomBetween(0, 30000);
-
-  // After 5 kicks, give up
-  if (controller.kickCount >= 5) {
-    return { shouldRejoin: false, delayMs: 0, reason: 'max_kicks_reached' };
-  }
 
   return { shouldRejoin: true, delayMs, reason: 'kicked' };
 }

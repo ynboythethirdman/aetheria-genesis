@@ -184,7 +184,7 @@ async function main() {
 
   // Handle commands from the dashboard web UI
   eventBus.on('dashboard:command', async (data) => {
-    const command = parseCommand(config.roblox.ownerUsername, data.command, config.roblox.ownerUsername);
+    const command = parseCommand(config.roblox.ownerUsername, `=${data.command}`, config.roblox.ownerUsername);
     if (command) {
       const result = executeCommand(command, squadState, eventBus);
       if (result.handled) {
