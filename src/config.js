@@ -9,7 +9,7 @@ module.exports = {
   minecraft: {
     host: process.env.MC_HOST || 'localhost',
     port: parseInt(process.env.MC_PORT || '25565', 10),
-    version: process.env.MC_VERSION || '1.20.4',
+    version: process.env.MC_VERSION || '1.21.4',
   },
 
   // ── Agent Fleet ───────────────────────────────────────────────────────
