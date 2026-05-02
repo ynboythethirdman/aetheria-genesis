@@ -111,8 +111,10 @@ async function main() {
       } else {
         // No credentials — try auto account creation
         console.log(`[VibeSquad] ${bot.persona.username} — no credentials, attempting auto signup...`);
-        const suffix = crypto.randomBytes(3).toString('hex');
-        const autoUsername = `${bot.persona.username}_${suffix}`;
+        const suffix = crypto.randomBytes(2).toString('hex');
+        // Roblox allows only one underscore — strip underscores from base name
+        const baseName = bot.persona.username.replace(/_/g, '');
+        const autoUsername = `${baseName}_${suffix}`;
         const autoPassword = `VibeSquad_${crypto.randomBytes(6).toString('base64url')}!`;
 
         const created = await createAccount(bot.browser, {

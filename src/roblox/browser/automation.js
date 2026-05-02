@@ -7,7 +7,9 @@
  * emote execution, friend requests, and kick detection.
  */
 
-const { chromium } = require('playwright');
+const { chromium } = require('playwright-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+chromium.use(StealthPlugin());
 const { getRandomViewport, addMouseNoise, generateMousePath, getKeystrokeDelays } = require('../behavior/stealth');
 const { sleep, randomDelay, randomBetween, chance } = require('../utils/timing');
 const config = require('../config');
@@ -80,7 +82,7 @@ async function launch(controller) {
   const { viewport } = controller;
 
   controller.browser = await chromium.launch({
-    headless: true,
+    headless: false,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -98,19 +100,7 @@ async function launch(controller) {
     javaScriptEnabled: true,
   });
 
-  // Mask automation indicators
-  await controller.context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'plugins', {
-      get: () => [1, 2, 3, 4, 5],
-    });
-    Object.defineProperty(navigator, 'languages', {
-      get: () => ['en-US', 'en'],
-    });
-
-    // Mask chrome automation
-    window.chrome = { runtime: {} };
-  });
+  // Note: stealth plugin handles webdriver/chrome/plugins masking automatically
 
   controller.page = await controller.context.newPage();
   controller.isConnected = true;
@@ -633,17 +623,24 @@ async function createAccount(controller, accountInfo) {
       console.log(`[Browser:${persona.username}] Signup submitted for ${accountInfo.username}`);
     }
 
-    // Wait for CAPTCHA or redirect
-    await randomDelay(5000, 10000);
+    // Wait for CAPTCHA iframe or redirect (Roblox always shows FunCaptcha on signup)
+    console.log(`[Browser:${persona.username}] Waiting for CAPTCHA or redirect...`);
+    const captchaFrame = await page.waitForSelector(
+      'iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], iframe[src*="captcha"]',
+      { timeout: 30000 }
+    ).catch(() => null);
 
-    // Check if CAPTCHA appeared
-    const captchaFrame = await page.$('iframe[src*="captcha"], iframe[src*="funcaptcha"], iframe[src*="arkoselabs"], #captcha-container');
     if (captchaFrame) {
       console.log(`[Browser:${persona.username}] CAPTCHA detected — attempting auto-solve with OMO...`);
+      // Wait for the PoW to complete and image challenge to load
+      await sleep(15000);
       const solved = await solveFunCaptcha(controller);
-      if (!solved) {
+      if (solved) {
+        // Wait for page to redirect after solve
+        await page.waitForURL(/\/(home|discover)/, { timeout: 30000 }).catch(() => {});
+      } else {
         console.log(`[Browser:${persona.username}] Auto-solve failed — waiting for manual solve...`);
-        await page.waitForNavigation({ timeout: 120000 }).catch(() => {
+        await page.waitForURL(/\/(home|discover)/, { timeout: 120000 }).catch(() => {
           console.log(`[Browser:${persona.username}] CAPTCHA timeout — may need manual intervention`);
         });
       }
@@ -656,7 +653,7 @@ async function createAccount(controller, accountInfo) {
       return true;
     }
 
-    // Check for meaningful error messages (avoid matching generic CSS class names)
+    // Check for meaningful error messages
     const errorEl = await page.$('.alert-warning, .signup-error-message, #GeneralErrorText');
     if (errorEl) {
       const errorText = await errorEl.textContent();
@@ -702,6 +699,8 @@ async function changeDisplayName(controller, newDisplayName) {
     if (nameInput) {
       await nameInput.click({ clickCount: 3 });
       await randomDelay(100, 300);
+      await nameInput.press('Backspace');
+      await randomDelay(100, 200);
       await humanType(controller, nameInput, newDisplayName);
       await randomDelay(500, 1000);
     }
