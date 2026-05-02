@@ -64,4 +64,9 @@ function createVibeSquadDashboard(eventBus) {
   };
 }
 
+if (require.main === module) {
+  const dashboard = createVibeSquadDashboard(null);
+  dashboard.start();
+}
+
 module.exports = { createVibeSquadDashboard };

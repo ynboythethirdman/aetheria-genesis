@@ -20,6 +20,7 @@ const { createSocialController, getResponse, getProactiveComment, recordChatObse
 const { createStealthController, maybeHumanError, handleKick, markRejoined } = require('./behavior/stealth');
 const { parseCommand, executeCommand } = require('./commands/godConsole');
 const { sleep, randomDelay, randomBetween } = require('./utils/timing');
+const { createVibeSquadDashboard } = require('./dashboard/server');
 
 EventEmitter.defaultMaxListeners = 50;
 
@@ -48,6 +49,10 @@ async function main() {
 
   const eventBus = new EventEmitter();
   const squad = getSquad();
+
+  // Start dashboard
+  const dashboard = createVibeSquadDashboard(eventBus);
+  await dashboard.start();
 
   // ── Initialize bot state for each squad member ──────────────────────
   const bots = squad.map((persona, index) => {
@@ -89,6 +94,7 @@ async function main() {
         const loggedIn = await login(bot.browser);
         if (!loggedIn) {
           console.error(`[VibeSquad] ${bot.persona.username} login failed — skipping`);
+          await shutdown(bot.browser);
           continue;
         }
       } else if (bot.credentials.cookie) {
