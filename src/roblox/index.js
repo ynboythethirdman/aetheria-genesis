@@ -133,8 +133,11 @@ async function main() {
   }
 
   // ── Start the main loops ──────────────────────────────────────────
-  for (const bot of activeBots) {
-    startChatLoop(bot, squadState, eventBus);
+  // Only the first bot processes God Console commands to prevent
+  // toggles firing N times and emotes duplicating
+  for (let i = 0; i < activeBots.length; i++) {
+    const bot = activeBots[i];
+    startChatLoop(bot, squadState, eventBus, i === 0);
     startMovementLoop(bot, squadState);
     startStealthLoop(bot, squadState);
     startKickWatcher(bot, squadState, eventBus);
@@ -176,7 +179,7 @@ async function main() {
 
 // ── Loop: Chat Processing ──────────────────────────────────────────
 
-function startChatLoop(bot, squadState, eventBus) {
+function startChatLoop(bot, squadState, eventBus, isCommandBot) {
   const tick = async () => {
     try {
       // Read new chat messages
@@ -186,23 +189,26 @@ function startChatLoop(bot, squadState, eventBus) {
         // Record observation for all bots
         recordChatObservation(bot.social, msg.sender, msg.text);
 
-        // Check for God Console commands
-        const command = parseCommand(msg.sender, msg.text, config.roblox.ownerUsername);
-        if (command) {
-          const result = executeCommand(command, squadState, eventBus);
-          if (result.handled) {
-            console.log(`[GodConsole] ${command.name}: ${result.response}`);
+        // Only the designated command bot processes God Console commands
+        // to avoid toggles firing N times and emotes duplicating
+        if (isCommandBot) {
+          const command = parseCommand(msg.sender, msg.text, config.roblox.ownerUsername);
+          if (command) {
+            const result = executeCommand(command, squadState, eventBus);
+            if (result.handled) {
+              console.log(`[GodConsole] ${command.name}: ${result.response}`);
 
-            // Execute emote actions
-            for (const action of result.actions) {
-              if (action.action === 'emote') {
-                const targetBot = squadState.bots.find((b) => b.id === action.botId);
-                if (targetBot) {
-                  await performEmote(targetBot.browser, action.emote);
+              // Execute emote actions
+              for (const action of result.actions) {
+                if (action.action === 'emote') {
+                  const targetBot = squadState.bots.find((b) => b.id === action.botId);
+                  if (targetBot) {
+                    await performEmote(targetBot.browser, action.emote);
+                  }
                 }
               }
+              continue;
             }
-            continue;
           }
         }
 

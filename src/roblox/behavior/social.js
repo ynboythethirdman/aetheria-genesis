@@ -10,12 +10,15 @@ const { generateResponse, generateProactiveComment, generateDeflection } = requi
 const { getTypingDelay, chance, randomPick, randomBetween } = require('../utils/timing');
 const config = require('../config');
 
-// Bot-detection keywords that trigger deflection
+// Bot-detection phrases that trigger deflection (substring match)
 const BOT_KEYWORDS = [
-  'bot', 'bots', 'are you a bot', 'ur a bot', 'you a bot',
+  'are you a bot', 'ur a bot', 'you a bot',
   'is that a bot', 'definitely a bot', 'scripting', 'macro',
-  'automated', 'npc', 'ai', 'chatgpt', 'robot',
+  'automated', 'npc', 'chatgpt', 'robot',
 ];
+
+// Short keywords that need word-boundary matching to avoid false positives
+const BOT_KEYWORDS_EXACT = ['bot', 'bots', 'ai'];
 
 /**
  * Create a social controller for a single bot.
@@ -207,7 +210,11 @@ async function generatePlayerComment(persona, playerName, context) {
  */
 function isBotAccusation(message) {
   const lower = message.toLowerCase();
-  return BOT_KEYWORDS.some((kw) => lower.includes(kw));
+  if (BOT_KEYWORDS.some((kw) => lower.includes(kw))) return true;
+  return BOT_KEYWORDS_EXACT.some((kw) => {
+    const regex = new RegExp(`\\b${kw}\\b`, 'i');
+    return regex.test(lower);
+  });
 }
 
 /**
