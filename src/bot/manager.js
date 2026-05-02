@@ -80,17 +80,23 @@ class BotManager {
           : null,
       });
 
-      const timer = setInterval(async () => {
-        if (agentState.isThinking || !this.isRunning) return;
-        agentState.isThinking = true;
-        try {
-          await cognitiveTick(agentState, bot, this.eventBus, this.systems);
-        } catch (err) {
-          console.error(`[Cognition] ${soul.name} tick error: ${err.message}`);
-        }
-        agentState.isThinking = false;
-        agentState.lastTick = Date.now();
-      }, config.agents.tickInterval);
+      // Stagger initial tick with random offset to avoid rate-limit bursts
+      const initialDelay = Math.floor(Math.random() * config.agents.tickInterval);
+      const startTicking = () => {
+        return setInterval(async () => {
+          if (agentState.isThinking || !this.isRunning) return;
+          agentState.isThinking = true;
+          try {
+            await cognitiveTick(agentState, bot, this.eventBus, this.systems);
+          } catch (err) {
+            console.error(`[Cognition] ${soul.name} tick error: ${err.message}`);
+          }
+          agentState.isThinking = false;
+          agentState.lastTick = Date.now();
+        }, config.agents.tickInterval);
+      };
+      let timer;
+      const initTimeout = setTimeout(() => { timer = startTicking(); }, initialDelay);
 
       this.agents.set(soul.id, { soul, bot, state: agentState, tickTimer: timer });
     });
