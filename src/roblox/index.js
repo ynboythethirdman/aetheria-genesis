@@ -64,6 +64,13 @@ async function main() {
       cookie: process.env[`ROBLOX_COOKIE_${index + 1}`] || '',
     };
 
+    // Per-bot keyboard lock to serialize input across concurrent loops
+    let pending = Promise.resolve();
+    const withKeyboardLock = (fn) => {
+      pending = pending.then(fn, fn);
+      return pending;
+    };
+
     return {
       id: persona.id,
       persona,
@@ -72,6 +79,7 @@ async function main() {
       movement: createMovementController(persona.id),
       social: createSocialController(persona),
       stealth: createStealthController(persona.id),
+      withKeyboardLock,
       isRunning: false,
     };
   });
@@ -282,7 +290,7 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
         const response = await getResponse(bot.social, msg.sender, msg.text, context);
         if (response) {
           await sleep(response.delay);
-          await sendChat(bot.browser, response.text);
+          await bot.withKeyboardLock(() => sendChat(bot.browser, response.text));
           eventBus.emit('bot:chat', { bot: bot.persona.username, message: response.text });
         }
       }
@@ -292,7 +300,7 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
         const jokeResult = getJokeComment(bot.social);
         if (jokeResult) {
           await sleep(jokeResult.delay);
-          await sendChat(bot.browser, jokeResult.text);
+          await bot.withKeyboardLock(() => sendChat(bot.browser, jokeResult.text));
           eventBus.emit('bot:chat', { bot: bot.persona.username, message: jokeResult.text });
         }
       } else {
@@ -303,7 +311,7 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
 
         if (proactive) {
           await sleep(proactive.delay);
-          await sendChat(bot.browser, proactive.text);
+          await bot.withKeyboardLock(() => sendChat(bot.browser, proactive.text));
           eventBus.emit('bot:chat', { bot: bot.persona.username, message: proactive.text });
         }
       }
@@ -330,7 +338,7 @@ function startMovementLoop(bot, squadState) {
       // Periodically try to click-follow the owner in tethered/regrouping mode
       followAttemptCounter++;
       if (bot.movement.state !== 'free' && followAttemptCounter % 5 === 0) {
-        await followPlayer(bot.browser, config.roblox.ownerUsername);
+        await bot.withKeyboardLock(() => followPlayer(bot.browser, config.roblox.ownerUsername));
       }
 
       const moveAction = getNextMovement(
@@ -339,7 +347,7 @@ function startMovementLoop(bot, squadState) {
         { nearbyPlayers: [] }
       );
 
-      await executeMovement(bot.browser, moveAction);
+      await bot.withKeyboardLock(() => executeMovement(bot.browser, moveAction));
     } catch (err) {
       console.error(`[MoveLoop:${bot.persona.username}] Error: ${err.message}`);
     }
@@ -373,7 +381,7 @@ function startStealthLoop(bot, squadState) {
         } else {
           moveAction = { type: 'walk', direction: error.keys, duration: error.duration, sprint: false };
         }
-        await executeMovement(bot.browser, moveAction);
+        await bot.withKeyboardLock(() => executeMovement(bot.browser, moveAction));
       }
     } catch (err) {
       console.error(`[StealthLoop:${bot.persona.username}] Error: ${err.message}`);
