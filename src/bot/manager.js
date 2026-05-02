@@ -49,6 +49,7 @@ class BotManager {
       port: config.minecraft.port,
       username: soul.username,
       version: config.minecraft.version,
+      auth: 'offline',
       hideErrors: true,
     });
 
