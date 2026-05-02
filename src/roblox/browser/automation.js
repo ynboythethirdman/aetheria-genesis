@@ -738,6 +738,91 @@ async function followPlayer(controller, targetUsername) {
   }
 }
 
+/**
+ * Look up a Roblox userId by username via the users API.
+ *
+ * @param {object} controller - Browser controller (needs auth cookies)
+ * @param {string} username
+ * @returns {Promise<number|null>} userId or null
+ */
+async function resolveUserId(controller, username) {
+  const { page } = controller;
+  try {
+    const resp = await page.evaluate(async (uname) => {
+      const r = await fetch('https://users.roblox.com/v1/usernames/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernames: [uname], excludeBannedUsers: true }),
+      });
+      if (!r.ok) return null;
+      const data = await r.json();
+      return data.data && data.data.length > 0 ? data.data[0].id : null;
+    }, username);
+    return resp;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the game (place) a user is currently playing via the Presence API.
+ * Requires the bot to be authenticated (cookies set).
+ *
+ * @param {object} controller - Browser controller
+ * @param {number} userId - Target user's Roblox userId
+ * @returns {Promise<{placeId: number, gameId: string}|null>}
+ */
+async function getPlayerPresence(controller, userId) {
+  const { page } = controller;
+  try {
+    const resp = await page.evaluate(async (uid) => {
+      const r = await fetch('https://presence.roblox.com/v1/presence/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds: [uid] }),
+      });
+      if (!r.ok) return null;
+      const data = await r.json();
+      if (!data.userPresences || data.userPresences.length === 0) return null;
+      const p = data.userPresences[0];
+      if (p.userPresenceType !== 2 || !p.placeId) return null;
+      return { placeId: p.placeId, rootPlaceId: p.rootPlaceId, gameId: p.gameId };
+    }, userId);
+    return resp;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Auto-join whatever game the owner is currently playing.
+ * Resolves owner username → userId → presence → joinGame.
+ *
+ * @param {object} controller
+ * @param {string} ownerUsername
+ * @returns {Promise<boolean>}
+ */
+async function joinOwnerGame(controller, ownerUsername) {
+  const { persona } = controller;
+  console.log(`[Browser:${persona.username}] Looking up ${ownerUsername}'s game...`);
+
+  const userId = await resolveUserId(controller, ownerUsername);
+  if (!userId) {
+    console.log(`[Browser:${persona.username}] Could not resolve userId for ${ownerUsername}`);
+    return false;
+  }
+
+  const presence = await getPlayerPresence(controller, userId);
+  if (!presence) {
+    console.log(`[Browser:${persona.username}] ${ownerUsername} is not in a game right now`);
+    return false;
+  }
+
+  const gameUrl = `https://www.roblox.com/games/${presence.rootPlaceId || presence.placeId}`;
+  console.log(`[Browser:${persona.username}] ${ownerUsername} is playing ${gameUrl} — joining...`);
+  return joinGame(controller, gameUrl);
+}
+
 module.exports = {
   createBrowserController,
   launch,
@@ -746,6 +831,9 @@ module.exports = {
   changeDisplayName,
   sendFriendRequest,
   joinGame,
+  joinOwnerGame,
+  resolveUserId,
+  getPlayerPresence,
   sendChat,
   readChat,
   executeMovement,

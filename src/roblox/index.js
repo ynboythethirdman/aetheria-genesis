@@ -14,7 +14,7 @@
 const { EventEmitter } = require('events');
 const config = require('./config');
 const { getSquad } = require('./personas/squad');
-const { createBrowserController, launch, login, createAccount, changeDisplayName, sendFriendRequest, joinGame, sendChat, readChat, executeMovement, performEmote, followPlayer, isKicked, shutdown } = require('./browser/automation');
+const { createBrowserController, launch, login, createAccount, changeDisplayName, sendFriendRequest, joinGame, joinOwnerGame, sendChat, readChat, executeMovement, performEmote, followPlayer, isKicked, shutdown } = require('./browser/automation');
 const { createMovementController, getNextMovement, MOVE_STATE, setState } = require('./behavior/movement');
 const { createSocialController, getResponse, getProactiveComment, getJokeComment, recordChatObservation } = require('./behavior/social');
 const { createStealthController, maybeHumanError, handleKick, markRejoined } = require('./behavior/stealth');
@@ -45,7 +45,7 @@ async function main() {
 
   const gameUrl = config.roblox.gameUrl;
   if (!gameUrl) {
-    console.warn('[VibeSquad] WARNING: No ROBLOX_GAME_URL set. Bots will need a game URL to join.');
+    console.log('[VibeSquad] No ROBLOX_GAME_URL set — bots will auto-detect owner\'s game');
   }
 
   const eventBus = new EventEmitter();
@@ -136,9 +136,14 @@ async function main() {
       console.log(`[VibeSquad] ${bot.persona.username} sending friend request to ${config.roblox.ownerUsername}...`);
       await sendFriendRequest(bot.browser, config.roblox.ownerUsername);
 
-      // Join game if URL is set
+      // Join game: use explicit URL if set, otherwise auto-detect owner's game
       if (gameUrl) {
         await joinGame(bot.browser, gameUrl);
+      } else {
+        const joined = await joinOwnerGame(bot.browser, config.roblox.ownerUsername);
+        if (!joined) {
+          console.log(`[VibeSquad] ${bot.persona.username} — owner not in a game yet, will poll...`);
+        }
       }
 
       bot.isRunning = true;
@@ -167,6 +172,11 @@ async function main() {
     startMovementLoop(bot, squadState);
     startStealthLoop(bot, squadState);
     startKickWatcher(bot, squadState, eventBus);
+  }
+
+  // If no explicit game URL, poll owner's game and auto-join when they start playing
+  if (!gameUrl && activeBots.length > 0) {
+    startOwnerGamePoller(activeBots, squadState);
   }
 
   // ── Dashboard event logging ────────────────────────────────────────
@@ -409,6 +419,46 @@ function startKickWatcher(bot, squadState, eventBus) {
   };
 
   setTimeout(tick, 10000);
+}
+
+// ── Loop: Owner Game Poller ─────────────────────────────────────────
+// Polls the owner's presence and auto-joins bots to whatever game
+// the owner is currently in. Runs every 30s until all bots have joined.
+
+function startOwnerGamePoller(activeBots) {
+  let allJoined = false;
+
+  const tick = async () => {
+    if (allJoined) return;
+
+    try {
+      // Use the first bot's browser to check presence
+      const scout = activeBots[0];
+      if (!scout.isRunning) return;
+
+      const joined = await joinOwnerGame(scout.browser, config.roblox.ownerUsername);
+      if (joined) {
+        console.log(`[VibeSquad] Owner is in a game — joining all bots...`);
+        // Join remaining bots with staggered timing
+        for (let i = 1; i < activeBots.length; i++) {
+          if (!activeBots[i].isRunning) continue;
+          await randomDelay(2000, 5000);
+          await joinOwnerGame(activeBots[i].browser, config.roblox.ownerUsername);
+        }
+        allJoined = true;
+        console.log('[VibeSquad] All bots joined owner\'s game');
+        return;
+      }
+    } catch (err) {
+      console.error(`[GamePoller] Error: ${err.message}`);
+    }
+
+    // Poll every 30 seconds
+    setTimeout(tick, 30000);
+  };
+
+  // Start polling after a short delay
+  setTimeout(tick, 5000);
 }
 
 // ── Run ─────────────────────────────────────────────────────────────
