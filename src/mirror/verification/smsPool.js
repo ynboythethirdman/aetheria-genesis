@@ -133,7 +133,7 @@ async function waitForCode(orderId, tag) {
         return codeMatch[1];
       }
       console.log(`[SMSPool:${tag}] SMS received but no code found: ${sms}`);
-      return sms;
+      return null;
     }
 
     if (status === '6' || status.toLowerCase().includes('cancel') || status.toLowerCase().includes('refund')) {
