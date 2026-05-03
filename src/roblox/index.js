@@ -348,7 +348,7 @@ function botExecuteMovement(bot, action) {
       const keys = Array.isArray(action.direction) ? action.direction : ['w'];
       return cloudMove(bot.browser, keys, action.duration);
     }
-    if (action.type === 'idle') return sleep(action.duration || 1000);
+    if (action.type === 'idle' || action.type === 'look') return sleep(action.duration || 1000);
     return cloudMove(bot.browser, ['w'], 500);
   }
   return executeMovement(bot.browser, action);
