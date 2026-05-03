@@ -394,26 +394,35 @@ async function cloudSendChat(controller, message) {
 
 /**
  * Execute a movement in the cloud-streamed game.
- * Uses WASD keys for movement since the stream captures keyboard input.
+ * Accepts either:
+ *   - A named direction string: 'forward', 'backward', 'left', 'right', 'jump'
+ *   - A WASD key array from the movement system: ['w'], ['d','w'], etc.
+ * Holds all keys simultaneously for diagonal movement support.
  */
 async function cloudMove(controller, direction, durationMs) {
   const { page } = controller;
   durationMs = durationMs || randomBetween(500, 2000);
 
-  const keyMap = {
-    forward: 'w',
-    backward: 's',
-    left: 'a',
-    right: 'd',
-    jump: ' ',
+  const namedMap = {
+    forward: ['w'],
+    backward: ['s'],
+    left: ['a'],
+    right: ['d'],
+    jump: [' '],
   };
 
-  const key = keyMap[direction] || 'w';
+  let keys;
+  if (Array.isArray(direction)) {
+    keys = direction.length > 0 ? direction : [];
+  } else {
+    keys = namedMap[direction] || ['w'];
+  }
 
-  // Hold key for duration
-  await page.keyboard.down(key);
+  if (keys.length === 0) return;
+
+  for (const k of keys) await page.keyboard.down(k);
   await sleep(durationMs);
-  await page.keyboard.up(key);
+  for (const k of keys) await page.keyboard.up(k);
   await randomDelay(100, 300);
 }
 

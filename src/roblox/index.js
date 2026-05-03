@@ -342,10 +342,14 @@ function botFollowPlayer(bot, target) {
 
 function botExecuteMovement(bot, action) {
   if (bot.useCloud) {
-    if (action.type === 'jump') return cloudMove(bot.browser, 'jump', action.duration);
-    if (action.type === 'walk') return cloudMove(bot.browser, action.direction || 'forward', action.duration);
+    if (action.type === 'jump') return cloudMove(bot.browser, [' '], action.duration || 300);
+    if (action.type === 'walk') {
+      // action.direction is a WASD key array from angleToKeys (e.g. ['d'], ['w','a'])
+      const keys = Array.isArray(action.direction) ? action.direction : ['w'];
+      return cloudMove(bot.browser, keys, action.duration);
+    }
     if (action.type === 'idle') return sleep(action.duration || 1000);
-    return cloudMove(bot.browser, 'forward', 500);
+    return cloudMove(bot.browser, ['w'], 500);
   }
   return executeMovement(bot.browser, action);
 }
