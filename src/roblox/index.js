@@ -103,23 +103,27 @@ async function main() {
       // Auth flow: saved cookies > env cookie > password > auto-create account
       const cookieDir = path.join(__dirname, '..', '..', '.vibe-cookies');
       const cookiePath = path.join(cookieDir, `${bot.persona.username}.json`);
+      let authenticated = false;
 
+      // 1) Try saved cookies from a previous run
       if (fs.existsSync(cookiePath)) {
-        // Reuse saved session from a previous run
         const loaded = await loadCookies(bot.browser, cookiePath);
         if (loaded) {
           console.log(`[VibeSquad] ${bot.persona.username} restored saved session`);
-          // Navigate to Roblox to activate session
           await bot.browser.page.goto('https://www.roblox.com/home', { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
           const url = bot.browser.page.url();
           if (url.includes('/home') || url.includes('/discover')) {
             console.log(`[VibeSquad] ${bot.persona.username} session is valid`);
+            authenticated = true;
           } else {
             console.log(`[VibeSquad] ${bot.persona.username} saved session expired — will re-create`);
             fs.unlinkSync(cookiePath);
           }
         }
-      } else if (bot.credentials.cookie) {
+      }
+
+      // 2) Try env cookie
+      if (!authenticated && bot.credentials.cookie) {
         await bot.browser.context.addCookies([{
           name: '.ROBLOSECURITY',
           value: bot.credentials.cookie,
@@ -130,19 +134,26 @@ async function main() {
         }]);
         console.log(`[VibeSquad] ${bot.persona.username} using cookie auth`);
         await saveCookies(bot.browser, cookiePath);
-      } else if (bot.credentials.password) {
+        authenticated = true;
+      }
+
+      // 3) Try password login
+      if (!authenticated && bot.credentials.password) {
         const loggedIn = await login(bot.browser);
-        if (!loggedIn) {
+        if (loggedIn) {
+          await saveCookies(bot.browser, cookiePath);
+          authenticated = true;
+        } else {
           console.error(`[VibeSquad] ${bot.persona.username} login failed — skipping`);
           await shutdown(bot.browser);
           continue;
         }
-        await saveCookies(bot.browser, cookiePath);
-      } else {
-        // No credentials — try auto account creation
+      }
+
+      // 4) Auto-create account as last resort
+      if (!authenticated) {
         console.log(`[VibeSquad] ${bot.persona.username} — no credentials, attempting auto signup...`);
         const suffix = crypto.randomBytes(2).toString('hex');
-        // Roblox allows only one underscore — strip underscores from base name
         const baseName = bot.persona.username.replace(/_/g, '');
         const autoUsername = `${baseName}_${suffix}`;
         const autoPassword = `VibeSquad_${crypto.randomBytes(6).toString('base64url')}!`;
@@ -157,13 +168,10 @@ async function main() {
 
         if (created) {
           console.log(`[VibeSquad] ${bot.persona.username} account created as: ${autoUsername}`);
-          // Save cookies so we don't re-create next time
           await saveCookies(bot.browser, cookiePath);
-          // Register auto-created username with all bots' social controllers
           for (const b of bots) {
             addSquadIdentifier(b.social, autoUsername);
           }
-          // Set display name to metro-themed name
           await changeDisplayName(bot.browser, bot.persona.displayName);
         } else {
           console.warn(`[VibeSquad] ${bot.persona.username} auto-signup failed (likely CAPTCHA) — running in limited mode`);

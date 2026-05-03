@@ -786,10 +786,17 @@ async function resolveUserId(controller, username) {
 async function getPlayerPresence(controller, userId) {
   const { page, persona } = controller;
   try {
+    // Navigate to roblox.com first so cookies are sent with the fetch
+    const currentUrl = page.url();
+    if (!currentUrl.includes('roblox.com')) {
+      await page.goto('https://www.roblox.com', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    }
+
     const resp = await page.evaluate(async (uid) => {
       const r = await fetch('https://presence.roblox.com/v1/presence/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ userIds: [uid] }),
       });
       if (!r.ok) return { error: `HTTP ${r.status}` };
@@ -831,6 +838,7 @@ async function joinOwnerGame(controller, ownerUsername) {
     console.log(`[Browser:${persona.username}] Could not resolve userId for ${ownerUsername}`);
     return false;
   }
+  console.log(`[Browser:${persona.username}] Resolved ${ownerUsername} → userId ${userId}`);
 
   const presence = await getPlayerPresence(controller, userId);
   if (!presence) {
