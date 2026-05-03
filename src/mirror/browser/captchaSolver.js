@@ -93,6 +93,8 @@ async function solveFunCaptcha(page, tag) {
       if (inner) challengeFrame = inner;
     }
 
+    let anySolved = false;
+
     for (let round = 0; round < 6; round++) {
       await sleep(2000);
 
@@ -105,6 +107,7 @@ async function solveFunCaptcha(page, tag) {
 
       if (!questionText) {
         console.log(`[CaptchaSolver:${tag}] No question text (round ${round + 1}) - may be solved`);
+        anySolved = true;
         break;
       }
 
@@ -147,13 +150,14 @@ async function solveFunCaptcha(page, tag) {
       }, answerIndex).catch(() => false);
 
       if (clicked) {
+        anySolved = true;
         console.log(`[CaptchaSolver:${tag}] Round ${round + 1} answered (index ${answerIndex})`);
         await sleep(2000);
       }
     }
 
     await sleep(3000);
-    return true;
+    return anySolved;
   } catch (err) {
     console.error(`[CaptchaSolver:${tag}] Error: ${err.message}`);
     return false;
