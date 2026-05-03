@@ -1,12 +1,14 @@
 {
   "name": "aetheria-genesis",
   "version": "1.0.0",
-  "description": "A 100-agent autonomous civilization in Minecraft — cloud-native, headless, Replit-ready.",
+  "description": "A 100-agent autonomous civilization in Minecraft + 3-bot Roblox Vibe Squad — cloud-native, headless, Replit-ready.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "generate-souls": "node src/agents/generateSouls.js",
     "dashboard": "node src/dashboard/server.js",
+    "vibe-squad": "node src/roblox/index.js",
+    "vibe-dashboard": "node src/roblox/dashboard/server.js",
     "lint": "eslint src/"
   },
   "dependencies": {
@@ -15,6 +17,7 @@
     "express": "^4.19.0",
     "ioredis": "^5.4.0",
     "mineflayer": "^4.20.1",
+    "playwright": "^1.42.0",
     "socket.io": "^4.7.5",
     "uuid": "^9.0.1"
   },
