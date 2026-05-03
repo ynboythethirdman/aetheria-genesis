@@ -66,11 +66,7 @@ async function runC1Interactive(rl) {
 // ── A1 Interactive ───────────────────────────────────────────────────
 
 async function runA1Interactive(rl) {
-  const keyword = await ask(rl, '  Enter search keyword (e.g. "car", "sword"): ');
-  if (!keyword.trim()) {
-    console.log('  Keyword is required.');
-    return;
-  }
+  const keyword = await ask(rl, '  Enter search keyword (or press Enter for popular models): ');
 
   console.log('');
   console.log('  ┌─────────────────────────────────────────┐');

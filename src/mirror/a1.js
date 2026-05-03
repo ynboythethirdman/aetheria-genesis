@@ -1,9 +1,10 @@
 /**
  * Mirror — A1: Model Analyzer Process
  *
- * Searches Roblox catalog for popular models by keyword,
+ * Searches Roblox catalog for popular models by keyword (optional),
  * downloads them as temporary .rbxmx files, parses the XML
- * to find the most deeply nested element, then cleans up.
+ * to find the most deeply nested element, injects a NumberPose
+ * Item called "ConfigPose" at that deepest point, then cleans up.
  */
 
 const fs = require('fs');
@@ -11,6 +12,7 @@ const path = require('path');
 const { loadAccounts } = require('./c1');
 
 const TEMP_DIR = path.resolve(__dirname, '..', '..', 'data', 'temp_models');
+const TEST_ASSET_ID = '93161583751848';
 
 // ── Roblox API Helpers ───────────────────────────────────────────────
 
@@ -19,8 +21,9 @@ const ASSET_URL = 'https://assetdelivery.roblox.com/v1/asset';
 
 /**
  * Search Roblox catalog for models matching a keyword.
+ * If keyword is empty, fetches popular/trending models.
  *
- * @param {string} keyword - Search term
+ * @param {string} keyword - Search term (empty string = popular models)
  * @param {number} limit - Max results to fetch
  * @param {string} [cookie] - Optional .ROBLOSECURITY cookie for auth
  * @returns {Promise<Array<{id: number, name: string, creatorName: string}>>}
@@ -222,6 +225,81 @@ function findDeepestElement(filePath) {
 }
 
 /**
+ * Insert a NumberPose Item called "ConfigPose" at the deepest nesting point.
+ *
+ * @param {string} filePath - Path to the .rbxmx file
+ * @param {object} analysis - Result from findDeepestElement
+ * @returns {string} Path to the modified file
+ */
+function insertConfigPose(filePath, analysis) {
+  let xml = fs.readFileSync(filePath, 'utf-8');
+
+  const configPoseXml = [
+    '<Item class="NumberPose" referent="ConfigPose">',
+    '  <Properties>',
+    '    <string name="Name">ConfigPose</string>',
+    '    <double name="Value">0</double>',
+    '    <token name="EasingDirection">0</token>',
+    '    <token name="EasingStyle">0</token>',
+    '    <float name="Weight">1</float>',
+    '  </Properties>',
+    '</Item>',
+  ].join('\n');
+
+  // Find the deepest tag and insert ConfigPose right before its closing tag
+  // We walk the XML to locate the exact deepest element occurrence
+  const deepTag = analysis.tag;
+  const stack = [];
+  const tagRegex = /<\/?([a-zA-Z][\w.:_-]*)((?:\s+[a-zA-Z][\w.:_-]*\s*=\s*"[^"]*")*)\s*(\/?)>/g;
+  let match;
+  let insertPos = -1;
+
+  while ((match = tagRegex.exec(xml)) !== null) {
+    const fullMatch = match[0];
+    const tagName = match[1];
+    const selfClosing = match[3] === '/';
+
+    if (fullMatch.startsWith('</')) {
+      if (stack.length === analysis.depth && tagName === deepTag && insertPos === -1) {
+        insertPos = match.index;
+      }
+      stack.pop();
+      continue;
+    }
+
+    stack.push(tagName);
+
+    if (selfClosing) {
+      if (stack.length === analysis.depth && tagName === deepTag && insertPos === -1) {
+        // For self-closing, insert right after this tag
+        insertPos = match.index + fullMatch.length;
+      }
+      stack.pop();
+    }
+  }
+
+  if (insertPos >= 0) {
+    // Insert ConfigPose XML at the deepest point
+    const indent = '  '.repeat(analysis.depth);
+    const indentedPose = configPoseXml.split('\n').map((line) => indent + line).join('\n');
+    xml = xml.slice(0, insertPos) + '\n' + indentedPose + '\n' + xml.slice(insertPos);
+  } else {
+    // Fallback: append before the last closing tag in the file
+    const lastClose = xml.lastIndexOf('</roblox>');
+    if (lastClose >= 0) {
+      xml = xml.slice(0, lastClose) + configPoseXml + '\n' + xml.slice(lastClose);
+    } else {
+      xml += '\n' + configPoseXml;
+    }
+  }
+
+  const modifiedPath = filePath.replace('.rbxmx', '_modified.rbxmx');
+  fs.writeFileSync(modifiedPath, xml);
+  console.log(`[A1] Injected ConfigPose at depth ${analysis.depth} → ${path.basename(modifiedPath)}`);
+  return modifiedPath;
+}
+
+/**
  * Clean up temporary model files.
  */
 function cleanupTempModels() {
@@ -251,6 +329,7 @@ function cleanupTempModels() {
  */
 async function runA1(options) {
   const { keyword, count } = options;
+  const searchKeyword = (keyword || '').trim();
   const limit = count === 'auto' ? 10 : parseInt(count, 10);
 
   console.log('');
@@ -259,17 +338,32 @@ async function runA1(options) {
   console.log('  ║      Roblox Model Analyzer                ║');
   console.log('  ╚═══════════════════════════════════════════╝');
   console.log('');
-  console.log(`  Keyword:  "${keyword}"`);
+  console.log(`  Keyword:  ${searchKeyword ? '"' + searchKeyword + '"' : '(none — fetching popular models)'}`);
   console.log(`  Count:    ${count === 'auto' ? 'Automatic (top 10)' : count}`);
+  console.log(`  Test ID:  ${TEST_ASSET_ID}`);
   console.log('');
 
   // Use a saved account cookie if available (for auth'd requests)
   const accounts = loadAccounts();
   const cookie = null; // Models are public; cookie optional
 
+  // Always include the test asset
+  const testModel = { id: TEST_ASSET_ID, name: 'TestModel_93161583751848', creatorName: 'Test' };
+
   // ── Step 1: Search ─────────────────────────────────────────────────
-  console.log(`[A1] Searching for "${keyword}" models...`);
-  const models = await searchModels(keyword, limit, cookie);
+  let models = [];
+  if (searchKeyword) {
+    console.log(`[A1] Searching for "${searchKeyword}" models...`);
+    models = await searchModels(searchKeyword, limit, cookie);
+  } else {
+    console.log('[A1] No keyword — fetching popular models...');
+    models = await searchModels('', limit, cookie);
+  }
+
+  // Ensure the test asset is always included
+  if (!models.find((m) => String(m.id) === TEST_ASSET_ID)) {
+    models.unshift(testModel);
+  }
 
   if (models.length === 0) {
     console.log('[A1] No models found for that keyword.');
@@ -312,10 +406,13 @@ async function runA1(options) {
     console.log(`[A1]   Deepest element: <${analysis.tag}> at depth ${analysis.depth}`);
     console.log(`[A1]   Path: ${analysis.path.join(' > ')}`);
 
-    results.push({ model, filePath, fileSize, analysis });
+    // Inject ConfigPose at the deepest point
+    const modifiedPath = insertConfigPose(filePath, analysis);
+
+    results.push({ model, filePath, modifiedPath, fileSize, analysis });
 
     if (analysis.depth > overallDeepest.depth) {
-      overallDeepest = { depth: analysis.depth, model, analysis };
+      overallDeepest = { depth: analysis.depth, model, analysis, modifiedPath };
     }
   }
 
@@ -354,6 +451,7 @@ async function runA1(options) {
     if (Object.keys(overallDeepest.analysis.attributes).length > 0) {
       console.log(`    Attrs:  ${JSON.stringify(overallDeepest.analysis.attributes)}`);
     }
+    console.log(`    ConfigPose injected → ${overallDeepest.modifiedPath || 'N/A'}`);
     console.log('');
   }
 
@@ -363,4 +461,4 @@ async function runA1(options) {
   return results;
 }
 
-module.exports = { runA1, searchModels, downloadModel, findDeepestElement, cleanupTempModels, TEMP_DIR };
+module.exports = { runA1, searchModels, downloadModel, findDeepestElement, insertConfigPose, cleanupTempModels, TEMP_DIR, TEST_ASSET_ID };
