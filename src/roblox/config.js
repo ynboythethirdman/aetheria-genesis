@@ -50,6 +50,14 @@ module.exports = {
     maxPollAttempts: 40,
   },
 
+  // ── Cloud Gaming (now.gg) ────────────────────────────────────────────
+  cloudGaming: {
+    enabled: process.env.CLOUD_GAMING !== 'false',  // On by default
+    provider: process.env.CLOUD_PROVIDER || 'nowgg',
+    maxRetries: parseInt(process.env.CLOUD_MAX_RETRIES || '5', 10),
+    sessionPollMs: parseInt(process.env.CLOUD_POLL_MS || '30000', 10),
+  },
+
   // ── Dashboard ───────────────────────────────────────────────────────
   dashboard: {
     port: parseInt(process.env.VIBE_DASHBOARD_PORT || '3001', 10),

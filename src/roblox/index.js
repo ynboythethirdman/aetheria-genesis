@@ -15,6 +15,7 @@ const { EventEmitter } = require('events');
 const config = require('./config');
 const { getSquad } = require('./personas/squad');
 const { createBrowserController, launch, login, createAccount, changeDisplayName, sendFriendRequest, joinGame, joinOwnerGame, sendChat, readChat, executeMovement, performEmote, followPlayer, isKicked, shutdown, saveCookies, loadCookies } = require('./browser/automation');
+const { createCloudController, launchCloud, startCloudSessionWithRetry, cloudLogin, cloudJoinGame, cloudSendChat, cloudMove, cloudPerformEmote, cloudFollowPlayer, cloudShutdown, getPlayerPresenceAPI, startCloudPoller, streamScreenshot } = require('./browser/cloudGaming');
 const path = require('path');
 const fs = require('fs');
 const { createMovementController, getNextMovement, MOVE_STATE, setState } = require('./behavior/movement');
@@ -33,7 +34,7 @@ EventEmitter.defaultMaxListeners = 50;
 async function main() {
   console.log('');
   console.log('  ╔═══════════════════════════════════════════╗');
-  console.log('  ║         THE VIBE SQUAD v1.0.0             ║');
+  console.log('  ║         THE VIBE SQUAD v2.0.0             ║');
   console.log('  ║   3 Autonomous Roblox Companions          ║');
   console.log('  ║   "indistinguishable from casual players" ║');
   console.log('  ╚═══════════════════════════════════════════╝');
@@ -46,6 +47,11 @@ async function main() {
   }
 
   const gameUrl = config.roblox.gameUrl;
+  const useCloud = config.cloudGaming.enabled;
+
+  if (useCloud) {
+    console.log('[VibeSquad] Cloud gaming mode (now.gg) — no local Roblox needed');
+  }
   if (!gameUrl) {
     console.log('[VibeSquad] No ROBLOX_GAME_URL set — bots will auto-detect owner\'s game');
   }
@@ -73,11 +79,17 @@ async function main() {
       return pending;
     };
 
+    // Create either cloud or direct browser controller
+    const controller = useCloud
+      ? createCloudController(persona, credentials)
+      : createBrowserController(persona, credentials);
+
     return {
       id: persona.id,
       persona,
       credentials,
-      browser: createBrowserController(persona, credentials),
+      browser: controller,
+      useCloud,
       movement: createMovementController(persona.id),
       social: createSocialController(persona),
       stealth: createStealthController(persona.id),
@@ -98,101 +110,131 @@ async function main() {
   for (const bot of bots) {
     try {
       console.log(`[VibeSquad] Launching ${bot.persona.username}...`);
-      await launch(bot.browser);
 
-      // Auth flow: saved cookies > env cookie > password > auto-create account
-      const cookieDir = path.join(__dirname, '..', '..', '.vibe-cookies');
-      const cookiePath = path.join(cookieDir, `${bot.persona.username}.json`);
-      let authenticated = false;
+      if (bot.useCloud) {
+        // ── Cloud gaming launch path ──────────────────────────────
+        await launchCloud(bot.browser);
 
-      // 1) Try saved cookies from a previous run
-      if (fs.existsSync(cookiePath)) {
-        const loaded = await loadCookies(bot.browser, cookiePath);
-        if (loaded) {
-          console.log(`[VibeSquad] ${bot.persona.username} restored saved session`);
-          await bot.browser.page.goto('https://www.roblox.com/home', { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
-          const url = bot.browser.page.url();
-          if (url.includes('/home') || url.includes('/discover')) {
-            console.log(`[VibeSquad] ${bot.persona.username} session is valid`);
-            authenticated = true;
+        // Start now.gg cloud session with retry logic
+        const sessionStarted = await startCloudSessionWithRetry(
+          bot.browser, gameUrl, config.cloudGaming.maxRetries
+        );
+
+        if (sessionStarted) {
+          // Login with bot's Roblox credentials within the cloud session
+          if (bot.credentials.password) {
+            await cloudLogin(bot.browser, bot.credentials.username, bot.credentials.password);
           } else {
-            console.log(`[VibeSquad] ${bot.persona.username} saved session expired — will re-create`);
-            fs.unlinkSync(cookiePath);
+            console.log(`[VibeSquad] ${bot.persona.username} — no password set, stream login needed`);
+          }
+
+          // Join game if URL provided
+          if (gameUrl) {
+            await cloudJoinGame(bot.browser, gameUrl);
+          }
+
+          bot.isRunning = true;
+        } else {
+          console.warn(`[VibeSquad] ${bot.persona.username} cloud session failed after retries`);
+        }
+      } else {
+        // ── Direct browser launch path (original) ─────────────────
+        await launch(bot.browser);
+
+        // Auth flow: saved cookies > env cookie > password > auto-create account
+        const cookieDir = path.join(__dirname, '..', '..', '.vibe-cookies');
+        const cookiePath = path.join(cookieDir, `${bot.persona.username}.json`);
+        let authenticated = false;
+
+        // 1) Try saved cookies from a previous run
+        if (fs.existsSync(cookiePath)) {
+          const loaded = await loadCookies(bot.browser, cookiePath);
+          if (loaded) {
+            console.log(`[VibeSquad] ${bot.persona.username} restored saved session`);
+            await bot.browser.page.goto('https://www.roblox.com/home', { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+            const url = bot.browser.page.url();
+            if (url.includes('/home') || url.includes('/discover')) {
+              console.log(`[VibeSquad] ${bot.persona.username} session is valid`);
+              authenticated = true;
+            } else {
+              console.log(`[VibeSquad] ${bot.persona.username} saved session expired — will re-create`);
+              fs.unlinkSync(cookiePath);
+            }
           }
         }
-      }
 
-      // 2) Try env cookie
-      if (!authenticated && bot.credentials.cookie) {
-        await bot.browser.context.addCookies([{
-          name: '.ROBLOSECURITY',
-          value: bot.credentials.cookie,
-          domain: '.roblox.com',
-          path: '/',
-          httpOnly: true,
-          secure: true,
-        }]);
-        console.log(`[VibeSquad] ${bot.persona.username} using cookie auth`);
-        await saveCookies(bot.browser, cookiePath);
-        authenticated = true;
-      }
-
-      // 3) Try password login
-      if (!authenticated && bot.credentials.password) {
-        const loggedIn = await login(bot.browser);
-        if (loggedIn) {
+        // 2) Try env cookie
+        if (!authenticated && bot.credentials.cookie) {
+          await bot.browser.context.addCookies([{
+            name: '.ROBLOSECURITY',
+            value: bot.credentials.cookie,
+            domain: '.roblox.com',
+            path: '/',
+            httpOnly: true,
+            secure: true,
+          }]);
+          console.log(`[VibeSquad] ${bot.persona.username} using cookie auth`);
           await saveCookies(bot.browser, cookiePath);
           authenticated = true;
-        } else {
-          console.error(`[VibeSquad] ${bot.persona.username} login failed — skipping`);
-          await shutdown(bot.browser);
-          continue;
         }
-      }
 
-      // 4) Auto-create account as last resort
-      if (!authenticated) {
-        console.log(`[VibeSquad] ${bot.persona.username} — no credentials, attempting auto signup...`);
-        const suffix = crypto.randomBytes(2).toString('hex');
-        const baseName = bot.persona.username.replace(/_/g, '');
-        const autoUsername = `${baseName}_${suffix}`;
-        const autoPassword = `VibeSquad_${crypto.randomBytes(6).toString('base64url')}!`;
-
-        const created = await createAccount(bot.browser, {
-          username: autoUsername,
-          password: autoPassword,
-          birthMonth: randomBetween(1, 12),
-          birthDay: randomBetween(1, 28),
-          birthYear: randomBetween(2003, 2007),
-        });
-
-        if (created) {
-          console.log(`[VibeSquad] ${bot.persona.username} account created as: ${autoUsername}`);
-          await saveCookies(bot.browser, cookiePath);
-          for (const b of bots) {
-            addSquadIdentifier(b.social, autoUsername);
+        // 3) Try password login
+        if (!authenticated && bot.credentials.password) {
+          const loggedIn = await login(bot.browser);
+          if (loggedIn) {
+            await saveCookies(bot.browser, cookiePath);
+            authenticated = true;
+          } else {
+            console.error(`[VibeSquad] ${bot.persona.username} login failed — skipping`);
+            await shutdown(bot.browser);
+            continue;
           }
-          await changeDisplayName(bot.browser, bot.persona.displayName);
+        }
+
+        // 4) Auto-create account as last resort
+        if (!authenticated) {
+          console.log(`[VibeSquad] ${bot.persona.username} — no credentials, attempting auto signup...`);
+          const suffix = crypto.randomBytes(2).toString('hex');
+          const baseName = bot.persona.username.replace(/_/g, '');
+          const autoUsername = `${baseName}_${suffix}`;
+          const autoPassword = `VibeSquad_${crypto.randomBytes(6).toString('base64url')}!`;
+
+          const created = await createAccount(bot.browser, {
+            username: autoUsername,
+            password: autoPassword,
+            birthMonth: randomBetween(1, 12),
+            birthDay: randomBetween(1, 28),
+            birthYear: randomBetween(2003, 2007),
+          });
+
+          if (created) {
+            console.log(`[VibeSquad] ${bot.persona.username} account created as: ${autoUsername}`);
+            await saveCookies(bot.browser, cookiePath);
+            for (const b of bots) {
+              addSquadIdentifier(b.social, autoUsername);
+            }
+            await changeDisplayName(bot.browser, bot.persona.displayName);
+          } else {
+            console.warn(`[VibeSquad] ${bot.persona.username} auto-signup failed (likely CAPTCHA) — running in limited mode`);
+          }
+        }
+
+        // Send friend request to owner (T0rzyz)
+        console.log(`[VibeSquad] ${bot.persona.username} sending friend request to ${config.roblox.ownerUsername}...`);
+        await sendFriendRequest(bot.browser, config.roblox.ownerUsername);
+
+        // Join game: use explicit URL if set, otherwise auto-detect owner's game
+        if (gameUrl) {
+          await joinGame(bot.browser, gameUrl);
         } else {
-          console.warn(`[VibeSquad] ${bot.persona.username} auto-signup failed (likely CAPTCHA) — running in limited mode`);
+          const joined = await joinOwnerGame(bot.browser, config.roblox.ownerUsername);
+          if (!joined) {
+            console.log(`[VibeSquad] ${bot.persona.username} — owner not in a game yet, will poll...`);
+          }
         }
+
+        bot.isRunning = true;
       }
-
-      // Send friend request to owner (T0rzyz)
-      console.log(`[VibeSquad] ${bot.persona.username} sending friend request to ${config.roblox.ownerUsername}...`);
-      await sendFriendRequest(bot.browser, config.roblox.ownerUsername);
-
-      // Join game: use explicit URL if set, otherwise auto-detect owner's game
-      if (gameUrl) {
-        await joinGame(bot.browser, gameUrl);
-      } else {
-        const joined = await joinOwnerGame(bot.browser, config.roblox.ownerUsername);
-        if (!joined) {
-          console.log(`[VibeSquad] ${bot.persona.username} — owner not in a game yet, will poll...`);
-        }
-      }
-
-      bot.isRunning = true;
 
       // Stagger bot launches to look natural
       await randomDelay(3000, 8000);
@@ -249,7 +291,7 @@ async function main() {
           if (action.action === 'emote') {
             const targetBot = squadState.bots.find((b) => b.id === action.botId);
             if (targetBot) {
-              await performEmote(targetBot.browser, action.emote);
+              await targetBot.withKeyboardLock(() => botPerformEmote(targetBot, action.emote));
             }
           }
         }
@@ -265,17 +307,51 @@ async function main() {
   process.on('SIGINT', async () => {
     console.log('\n[VibeSquad] Shutting down...');
     for (const bot of bots) {
-      await shutdown(bot.browser);
+      await botShutdown(bot);
     }
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
     for (const bot of bots) {
-      await shutdown(bot.browser);
+      await botShutdown(bot);
     }
     process.exit(0);
   });
+}
+
+// ── Helpers: route to cloud or direct functions based on bot mode ────
+
+function botSendChat(bot, message) {
+  return bot.useCloud
+    ? cloudSendChat(bot.browser, message)
+    : sendChat(bot.browser, message);
+}
+
+function botPerformEmote(bot, emote) {
+  return bot.useCloud
+    ? cloudPerformEmote(bot.browser, emote)
+    : performEmote(bot.browser, emote);
+}
+
+function botFollowPlayer(bot, target) {
+  return bot.useCloud
+    ? cloudFollowPlayer(bot.browser, target)
+    : followPlayer(bot.browser, target);
+}
+
+function botExecuteMovement(bot, action) {
+  if (bot.useCloud) {
+    if (action.type === 'jump') return cloudMove(bot.browser, 'jump', action.duration);
+    if (action.type === 'walk') return cloudMove(bot.browser, action.direction || 'forward', action.duration);
+    if (action.type === 'idle') return sleep(action.duration || 1000);
+    return cloudMove(bot.browser, 'forward', 500);
+  }
+  return executeMovement(bot.browser, action);
+}
+
+function botShutdown(bot) {
+  return bot.useCloud ? cloudShutdown(bot.browser) : shutdown(bot.browser);
 }
 
 // ── Loop: Chat Processing ──────────────────────────────────────────
@@ -283,47 +359,45 @@ async function main() {
 function startChatLoop(bot, squadState, eventBus, isCommandBot) {
   const tick = async () => {
     try {
-      // Read new chat messages
-      const newMessages = await readChat(bot.browser);
+      // In cloud mode, chat reading is not yet supported via OCR
+      // so we skip reading and focus on proactive comments
+      if (!bot.useCloud) {
+        const newMessages = await readChat(bot.browser);
 
-      for (const msg of newMessages) {
-        // Record observation for all bots
-        recordChatObservation(bot.social, msg.sender, msg.text);
+        for (const msg of newMessages) {
+          recordChatObservation(bot.social, msg.sender, msg.text);
 
-        // All bots detect God Console commands to avoid responding to them,
-        // but only the designated command bot actually executes them
-        const command = parseCommand(msg.sender, msg.text, config.roblox.ownerUsername);
-        if (command) {
-          if (isCommandBot) {
-            const result = executeCommand(command, squadState, eventBus);
-            if (result.handled) {
-              console.log(`[GodConsole] ${command.name}: ${result.response}`);
+          const command = parseCommand(msg.sender, msg.text, config.roblox.ownerUsername);
+          if (command) {
+            if (isCommandBot) {
+              const result = executeCommand(command, squadState, eventBus);
+              if (result.handled) {
+                console.log(`[GodConsole] ${command.name}: ${result.response}`);
 
-              // Execute emote actions
-              for (const action of result.actions) {
-                if (action.action === 'emote') {
-                  const targetBot = squadState.bots.find((b) => b.id === action.botId);
-                  if (targetBot) {
-                    await performEmote(targetBot.browser, action.emote);
+                for (const action of result.actions) {
+                  if (action.action === 'emote') {
+                    const targetBot = squadState.bots.find((b) => b.id === action.botId);
+                    if (targetBot) {
+                      await targetBot.withKeyboardLock(() => botPerformEmote(targetBot, action.emote));
+                    }
                   }
                 }
               }
             }
+            continue;
           }
-          continue;
-        }
 
-        // Generate response if appropriate
-        const context = {
-          nearbyPlayers: [],
-          gameContext: 'playing a Roblox game with friends',
-        };
+          const context = {
+            nearbyPlayers: [],
+            gameContext: 'playing a Roblox game with friends',
+          };
 
-        const response = await getResponse(bot.social, msg.sender, msg.text, context);
-        if (response) {
-          await sleep(response.delay);
-          await bot.withKeyboardLock(() => sendChat(bot.browser, response.text));
-          eventBus.emit('bot:chat', { bot: bot.persona.username, message: response.text });
+          const response = await getResponse(bot.social, msg.sender, msg.text, context);
+          if (response) {
+            await sleep(response.delay);
+            await bot.withKeyboardLock(() => botSendChat(bot, response.text));
+            eventBus.emit('bot:chat', { bot: bot.persona.username, message: response.text });
+          }
         }
       }
 
@@ -332,7 +406,7 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
         const jokeResult = getJokeComment(bot.social);
         if (jokeResult) {
           await sleep(jokeResult.delay);
-          await bot.withKeyboardLock(() => sendChat(bot.browser, jokeResult.text));
+          await bot.withKeyboardLock(() => botSendChat(bot, jokeResult.text));
           eventBus.emit('bot:chat', { bot: bot.persona.username, message: jokeResult.text });
         }
       } else {
@@ -343,7 +417,7 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
 
         if (proactive) {
           await sleep(proactive.delay);
-          await bot.withKeyboardLock(() => sendChat(bot.browser, proactive.text));
+          await bot.withKeyboardLock(() => botSendChat(bot, proactive.text));
           eventBus.emit('bot:chat', { bot: bot.persona.username, message: proactive.text });
         }
       }
@@ -351,12 +425,10 @@ function startChatLoop(bot, squadState, eventBus, isCommandBot) {
       console.error(`[ChatLoop:${bot.persona.username}] Error: ${err.message}`);
     }
 
-    // Schedule next tick with jitter (stop if bot was permanently kicked)
     const interval = config.squad.tickIntervalMs + randomBetween(-500, 500);
     if (bot.isRunning) setTimeout(tick, interval);
   };
 
-  // Start with random offset so bots don't tick in sync
   setTimeout(tick, randomBetween(1000, 5000));
 }
 
@@ -370,7 +442,7 @@ function startMovementLoop(bot, squadState) {
       // Periodically try to click-follow the owner in tethered/regrouping mode
       followAttemptCounter++;
       if (bot.movement.state !== 'free' && followAttemptCounter % 5 === 0) {
-        await bot.withKeyboardLock(() => followPlayer(bot.browser, config.roblox.ownerUsername));
+        await bot.withKeyboardLock(() => botFollowPlayer(bot, config.roblox.ownerUsername));
       }
 
       const moveAction = getNextMovement(
@@ -379,7 +451,7 @@ function startMovementLoop(bot, squadState) {
         { nearbyPlayers: [] }
       );
 
-      await bot.withKeyboardLock(() => executeMovement(bot.browser, moveAction));
+      await bot.withKeyboardLock(() => botExecuteMovement(bot, moveAction));
     } catch (err) {
       console.error(`[MoveLoop:${bot.persona.username}] Error: ${err.message}`);
     }
@@ -413,7 +485,7 @@ function startStealthLoop(bot, squadState) {
         } else {
           moveAction = { type: 'walk', direction: error.keys, duration: error.duration, sprint: false };
         }
-        await bot.withKeyboardLock(() => executeMovement(bot.browser, moveAction));
+        await bot.withKeyboardLock(() => botExecuteMovement(bot, moveAction));
       }
     } catch (err) {
       console.error(`[StealthLoop:${bot.persona.username}] Error: ${err.message}`);
@@ -429,6 +501,9 @@ function startStealthLoop(bot, squadState) {
 // ── Loop: Kick Detection ────────────────────────────────────────────
 
 function startKickWatcher(bot, squadState, eventBus) {
+  // Cloud mode: kick detection isn't available via screen analysis yet
+  if (bot.useCloud) return;
+
   const tick = async () => {
     try {
       const kicked = await isKicked(bot.browser);
@@ -441,7 +516,6 @@ function startKickWatcher(bot, squadState, eventBus) {
           console.log(`[KickWatch:${bot.persona.username}] Rejoining in ${Math.round(plan.delayMs / 1000)}s...`);
           await sleep(plan.delayMs);
 
-          // Attempt rejoin
           const gameUrl = config.roblox.gameUrl;
           let rejoined = false;
           if (gameUrl) {
@@ -472,45 +546,79 @@ function startKickWatcher(bot, squadState, eventBus) {
 
 // ── Loop: Owner Game Poller ─────────────────────────────────────────
 // Polls the owner's presence and auto-joins bots to whatever game
-// the owner is currently in. Runs every 30s until all bots have joined.
+// the owner is currently in. Uses Roblox Presence API (no auth needed).
 
-function startOwnerGamePoller(activeBots) {
+function startOwnerGamePoller(activeBots, squadState) {
+  const useCloud = activeBots[0] && activeBots[0].useCloud;
   let allJoined = false;
 
-  const tick = async () => {
-    if (allJoined) return;
+  if (useCloud) {
+    // Cloud mode: use standalone Presence API (no browser auth needed)
+    const poll = async () => {
+      if (allJoined) return;
 
-    try {
-      // Use the first bot's browser to check presence
-      const scout = activeBots[0];
-      if (!scout.isRunning) {
-        setTimeout(tick, 30000);
-        return;
-      }
+      try {
+        const presence = await getPlayerPresenceAPI(config.roblox.ownerUsername);
 
-      const joined = await joinOwnerGame(scout.browser, config.roblox.ownerUsername);
-      if (joined) {
-        console.log(`[VibeSquad] Owner is in a game — joining all bots...`);
-        // Join remaining bots with staggered timing
-        for (let i = 1; i < activeBots.length; i++) {
-          if (!activeBots[i].isRunning) continue;
-          await randomDelay(2000, 5000);
-          await joinOwnerGame(activeBots[i].browser, config.roblox.ownerUsername);
+        if (presence && presence.userPresenceType === 2 && presence.rootPlaceId) {
+          const placeId = String(presence.rootPlaceId);
+          console.log(`[VibeSquad] ${config.roblox.ownerUsername} is playing place ${placeId} — joining all bots via cloud...`);
+
+          for (const bot of activeBots) {
+            if (!bot.isRunning) continue;
+            await cloudJoinGame(bot.browser, placeId);
+            await randomDelay(2000, 5000);
+          }
+          allJoined = true;
+          console.log('[VibeSquad] All cloud bots joined owner\'s game');
+          return;
         }
-        allJoined = true;
-        console.log('[VibeSquad] All bots joined owner\'s game');
-        return;
+
+        const types = ['Offline', 'Website', 'In Game', 'In Studio', 'Invisible'];
+        if (presence) {
+          console.log(`[GamePoller] ${config.roblox.ownerUsername}: ${types[presence.userPresenceType] || 'Unknown'}`);
+        }
+      } catch (err) {
+        console.error(`[GamePoller] Error: ${err.message}`);
       }
-    } catch (err) {
-      console.error(`[GamePoller] Error: ${err.message}`);
-    }
 
-    // Poll every 30 seconds
-    setTimeout(tick, 30000);
-  };
+      setTimeout(poll, config.cloudGaming.sessionPollMs);
+    };
 
-  // Start polling after a short delay
-  setTimeout(tick, 5000);
+    setTimeout(poll, 5000);
+  } else {
+    // Direct mode: use browser-based presence check
+    const tick = async () => {
+      if (allJoined) return;
+
+      try {
+        const scout = activeBots[0];
+        if (!scout.isRunning) {
+          setTimeout(tick, 30000);
+          return;
+        }
+
+        const joined = await joinOwnerGame(scout.browser, config.roblox.ownerUsername);
+        if (joined) {
+          console.log(`[VibeSquad] Owner is in a game — joining all bots...`);
+          for (let i = 1; i < activeBots.length; i++) {
+            if (!activeBots[i].isRunning) continue;
+            await randomDelay(2000, 5000);
+            await joinOwnerGame(activeBots[i].browser, config.roblox.ownerUsername);
+          }
+          allJoined = true;
+          console.log('[VibeSquad] All bots joined owner\'s game');
+          return;
+        }
+      } catch (err) {
+        console.error(`[GamePoller] Error: ${err.message}`);
+      }
+
+      setTimeout(tick, 30000);
+    };
+
+    setTimeout(tick, 5000);
+  }
 }
 
 // ── Run ─────────────────────────────────────────────────────────────

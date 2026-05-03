@@ -15,7 +15,7 @@ const { getSquad } = require('../personas/squad');
 const BOT_KEYWORDS = [
   'are you a bot', 'ur a bot', 'you a bot',
   'is that a bot', 'definitely a bot', 'scripting', 'macro',
-  'automated', 'npc', 'chatgpt', 'robot',
+  'automated', 'chatgpt', 'robot',
 ];
 
 // Short keywords that need word-boundary matching to avoid false positives
