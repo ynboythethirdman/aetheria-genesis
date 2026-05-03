@@ -3,3 +3,6 @@ node_modules/
 src/agents/souls.json
 *.log
 .replit.history
+data/
+data/accounts.json
+data/temp_models/

@@ -7,6 +7,9 @@
     "start": "node src/index.js",
     "generate-souls": "node src/agents/generateSouls.js",
     "dashboard": "node src/dashboard/server.js",
+    "mirror": "node src/mirror/index.js",
+    "mirror:c1": "node src/mirror/index.js c1",
+    "mirror:a1": "node src/mirror/index.js a1",
     "lint": "eslint src/"
   },
   "dependencies": {
@@ -15,6 +18,8 @@
     "express": "^4.19.0",
     "ioredis": "^5.4.0",
     "mineflayer": "^4.20.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "socket.io": "^4.7.5",
     "uuid": "^9.0.1"
   },
