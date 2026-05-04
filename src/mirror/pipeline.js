@@ -1,19 +1,20 @@
 /**
- * Mirror — Train Pipeline (C1 → A1)
+ * Mirror — Train Pipeline (C1 → A1 → B1)
  *
- * Chains account generation (C1) directly into model analysis (A1).
+ * Chains account generation (C1) into model analysis (A1) into AI titles (B1).
  * Each account flows through like a train:
  *   1. C1 creates & saves an account
  *   2. Account is immediately passed to A1
  *   3. A1 searches, downloads, analyzes, and injects into models
- *   4. If A1 needs more accounts, C1 generates another
+ *   4. B1 generates AI titles + emojis and renames the models
  */
 
 const { generateOneAccount, loadAccounts } = require('./c1');
 const { runA1 } = require('./a1');
+const { runB1 } = require('./b1');
 
 /**
- * Run the full C1 → A1 train pipeline.
+ * Run the full C1 → A1 → B1 train pipeline.
  *
  * @param {object} options
  * @param {number} options.accountCount - Number of accounts to generate
@@ -27,7 +28,7 @@ async function runTrain(options) {
   console.log('');
   console.log('  ╔═══════════════════════════════════════════╗');
   console.log('  ║        MIRROR — TRAIN PIPELINE            ║');
-  console.log('  ║           C1 → A1 (chained)               ║');
+  console.log('  ║        C1 → A1 → B1 (chained)            ║');
   console.log('  ╚═══════════════════════════════════════════╝');
   console.log('');
   console.log(`  Accounts:  ${accountCount}`);
@@ -47,8 +48,8 @@ async function runTrain(options) {
     const account = await generateOneAccount(i);
 
     if (!account) {
-      console.log(`  [Train] C1 failed for account #${i} — skipping A1`);
-      allResults.push({ train: i, account: null, a1: null, error: 'c1_failed' });
+      console.log(`  [Train] C1 failed for account #${i} — skipping A1 & B1`);
+      allResults.push({ train: i, account: null, a1: null, b1: null, error: 'c1_failed' });
       continue;
     }
 
@@ -62,28 +63,33 @@ async function runTrain(options) {
       account,
     });
 
-    allResults.push({ train: i, account, a1: a1Results });
+    // ── B1: AI title generation ────────────────────────────────────
+    console.log(`  [Train] B1 → Generating AI titles...`);
+    const b1Results = await runB1(a1Results);
+
+    allResults.push({ train: i, account, a1: a1Results, b1: b1Results });
     console.log(`  [Train] Train ${i}/${accountCount} complete`);
   }
 
   // ── Summary ──────────────────────────────────────────────────────
   console.log('');
-  console.log('  ╔═══════════════════════════════════════════╗');
-  console.log('  ║          TRAIN PIPELINE SUMMARY           ║');
-  console.log('  ╠═══════════════════════════════════════════╣');
+  console.log('  ╔═══════════════════════════════════════════════════════════╗');
+  console.log('  ║              TRAIN PIPELINE SUMMARY                      ║');
+  console.log('  ╠═══════════════════════════════════════════════════════════╣');
   console.log('');
-  console.log('  ┌───────┬──────────────────────┬────────────┬──────────────┐');
-  console.log('  │ Train │ Account              │ C1 Status  │ A1 Models    │');
-  console.log('  ├───────┼──────────────────────┼────────────┼──────────────┤');
+  console.log('  ┌───────┬──────────────────────┬────────────┬────────┬────────────────────────┐');
+  console.log('  │ Train │ Account              │ C1 Status  │ Models │ B1 Titles              │');
+  console.log('  ├───────┼──────────────────────┼────────────┼────────┼────────────────────────┤');
 
   for (const r of allResults) {
     const user = r.account ? r.account.username.slice(0, 20).padEnd(20, ' ') : 'FAILED'.padEnd(20, ' ');
     const c1Status = r.account ? r.account.status.slice(0, 10).padEnd(10, ' ') : 'failed'.padEnd(10, ' ');
-    const a1Count = r.a1 ? String(r.a1.length).padStart(4, ' ') + ' models' : '   -       ';
-    console.log(`  │ ${String(r.train).padStart(5, ' ')} │ ${user} │ ${c1Status} │ ${a1Count.padEnd(12, ' ')} │`);
+    const modelCount = r.a1 ? String(r.a1.length).padStart(4, ' ') : '   -';
+    const b1Count = r.b1 ? String(r.b1.filter(b => b.aiTitle).length).padStart(4, ' ') + ' titled' : '   -               ';
+    console.log(`  │ ${String(r.train).padStart(5, ' ')} │ ${user} │ ${c1Status} │ ${modelCount}   │ ${String(b1Count).padEnd(22, ' ')} │`);
   }
 
-  console.log('  └───────┴──────────────────────┴────────────┴──────────────┘');
+  console.log('  └───────┴──────────────────────┴────────────┴────────┴────────────────────────┘');
   console.log('');
 
   return allResults;

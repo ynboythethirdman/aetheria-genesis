@@ -10,6 +10,7 @@
     "mirror": "node src/mirror/index.js",
     "mirror:c1": "node src/mirror/index.js c1",
     "mirror:a1": "node src/mirror/index.js a1",
+    "mirror:b1": "node src/mirror/index.js b1",
     "mirror:train": "node src/mirror/index.js train",
     "lint": "eslint src/"
   },

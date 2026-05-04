@@ -47,6 +47,13 @@ module.exports = {
     headless: process.env.MIRROR_HEADLESS === 'true',
   },
 
+  // Groq AI (for B1 title generation)
+  groq: {
+    apiKey: process.env.GROQ_API_KEY || '',
+    apiBase: 'https://api.groq.com/openai/v1',
+    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+  },
+
   // Output
   output: {
     accountsFile: process.env.MIRROR_ACCOUNTS_FILE || 'data/accounts.json',

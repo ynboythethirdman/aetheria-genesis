@@ -2,21 +2,25 @@
 /**
  * Mirror — Main Entry Point
  *
- * Interactive CLI with two processes:
- *   C1  →  Roblox Account Generation + Verification
- *   A1  →  Model Search, Download (.rbxmx), & Deep-Nest Analysis
+ * Interactive CLI with processes:
+ *   C1     →  Roblox Account Generation + Verification
+ *   A1     →  Model Search, Download (.rbxmx), & Deep-Nest Analysis
+ *   B1     →  AI Title Generation + Emoji Selection (Groq)
+ *   Train  →  C1 → A1 → B1 Pipeline
  *
  * Usage:
  *   node src/mirror/index.js              # Interactive menu
  *   node src/mirror/index.js c1           # Run C1 directly
  *   node src/mirror/index.js c1 5         # C1 with 5 accounts
  *   node src/mirror/index.js a1           # Run A1 directly
+ *   node src/mirror/index.js train        # Train pipeline
  */
 
 const readline = require('readline');
 const { runC1, ACCOUNTS_FILE } = require('./c1');
 const { runA1 } = require('./a1');
 const { runTrain } = require('./pipeline');
+const { runB1 } = require('./b1');
 
 // ── CLI Helpers ──────────────────────────────────────────────────────
 
@@ -38,7 +42,8 @@ function printBanner() {
   console.log('  ║                                           ║');
   console.log('  ║   C1     Account Generation               ║');
   console.log('  ║   A1     Model Search & Analysis          ║');
-  console.log('  ║   Train  C1 → A1 Pipeline                 ║');
+  console.log('  ║   B1     AI Title Generator               ║');
+  console.log('  ║   Train  C1 → A1 → B1 Pipeline            ║');
   console.log('  ║                                           ║');
   console.log('  ╚═══════════════════════════════════════════╝');
   console.log('');
@@ -50,8 +55,9 @@ function printMenu() {
   console.log('  │                                         │');
   console.log('  │   [1]  C1 — Generate Roblox Accounts    │');
   console.log('  │   [2]  A1 — Search & Analyze Models     │');
-  console.log('  │   [3]  Train — C1 → A1 Pipeline        │');
-  console.log('  │   [4]  View Saved Accounts              │');
+  console.log('  │   [3]  B1 — AI Title Generator          │');
+  console.log('  │   [4]  Train — C1 → A1 → B1 Pipeline   │');
+  console.log('  │   [5]  View Saved Accounts              │');
   console.log('  │   [0]  Exit                             │');
   console.log('  │                                         │');
   console.log('  └─────────────────────────────────────────┘');
@@ -85,7 +91,22 @@ async function runA1Interactive(rl) {
   const trimmed = countStr.trim().toLowerCase();
   const count = (!trimmed || trimmed === 'a') ? 'auto' : parseInt(trimmed, 10) || 'auto';
 
-  await runA1({ keyword: keyword.trim(), count });
+  const a1Results = await runA1({ keyword: keyword.trim(), count });
+  return a1Results;
+}
+
+// ── B1 Interactive ───────────────────────────────────────────────────
+
+async function runB1Interactive(rl) {
+  console.log('');
+  console.log('  B1 requires A1 results. Running A1 first...');
+  console.log('');
+  const a1Results = await runA1Interactive(rl);
+  if (!a1Results || a1Results.length === 0) {
+    console.log('  No A1 results to process.');
+    return;
+  }
+  await runB1(a1Results);
 }
 
 // ── View Accounts ────────────────────────────────────────────────────
@@ -184,6 +205,13 @@ async function main() {
     process.exit(0);
   }
 
+  if (args[0] === 'b1') {
+    const rl = createPrompt();
+    await runB1Interactive(rl);
+    rl.close();
+    process.exit(0);
+  }
+
   // Interactive menu mode
   printBanner();
 
@@ -204,10 +232,14 @@ async function main() {
         break;
 
       case '3':
-        await runTrainInteractive(rl);
+        await runB1Interactive(rl);
         break;
 
       case '4':
+        await runTrainInteractive(rl);
+        break;
+
+      case '5':
         viewAccounts();
         break;
 
@@ -219,7 +251,7 @@ async function main() {
         break;
 
       default:
-        console.log('  Invalid choice. Enter 1, 2, 3, 4, or 0.');
+        console.log('  Invalid choice. Enter 1, 2, 3, 4, 5, or 0.');
     }
   }
 

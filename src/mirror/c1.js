@@ -160,7 +160,19 @@ async function generateOneAccount(index) {
       console.log(`[C1:${tag}] Skipping phone verification (no SMSPOOL_API_KEY)`);
     }
 
-    // ── Step 6: Finalize ───────────────────────────────────────────────
+    // ── Step 6: Extract .ROBLOSECURITY cookie for A1 ─────────────────
+    try {
+      const cookies = await ctrl.context.cookies('https://www.roblox.com');
+      const robloSec = cookies.find((c) => c.name === '.ROBLOSECURITY');
+      if (robloSec) {
+        accountRecord.cookie = robloSec.value;
+        console.log(`[C1:${tag}] Extracted .ROBLOSECURITY cookie`);
+      }
+    } catch (err) {
+      console.log(`[C1:${tag}] Could not extract cookie: ${err.message}`);
+    }
+
+    // ── Step 7: Finalize ───────────────────────────────────────────────
     accountRecord.status = 'complete';
     if (accountRecord.emailVerified) accountRecord.status = 'email_verified';
     if (accountRecord.phoneVerified) accountRecord.status = 'fully_verified';
