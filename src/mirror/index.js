@@ -22,6 +22,8 @@ const { runTrain } = require('./pipeline');
 const { runB1 } = require('./b1');
 const { runB2 } = require('./b2');
 const { printDashboard } = require('./stats');
+const { startAutonomous, stopAutonomous } = require('./autonomous');
+const { startBot } = require('./bot');
 
 // ── CLI Helpers ──────────────────────────────────────────────────────
 
@@ -81,7 +83,9 @@ function printMenu() {
   console.log('  \x1b[35m│\x1b[0m   \x1b[33m[3]\x1b[0m  Generate Titles                              \x1b[35m│\x1b[0m');
   console.log('  \x1b[35m│\x1b[0m   \x1b[33m[4]\x1b[0m  Upload Models                                \x1b[35m│\x1b[0m');
   console.log('  \x1b[35m│\x1b[0m   \x1b[33m[5]\x1b[0m  \x1b[32mTrain\x1b[0m \x1b[90m(Full Pipeline)\x1b[0m                        \x1b[35m│\x1b[0m');
-  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[6]\x1b[0m  Dashboard & Stats                            \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[6]\x1b[0m  \x1b[32mAutomatic\x1b[0m \x1b[90m(Runs for days)\x1b[0m                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[7]\x1b[0m  \x1b[32mDiscord Bot\x1b[0m \x1b[90m(Mobile control)\x1b[0m               \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[8]\x1b[0m  Dashboard & Stats                            \x1b[35m│\x1b[0m');
   console.log('  \x1b[35m│\x1b[0m   \x1b[33m[0]\x1b[0m  Exit                                         \x1b[35m│\x1b[0m');
   console.log('  \x1b[35m│\x1b[0m                                                  \x1b[35m│\x1b[0m');
   console.log('  \x1b[35m└──────────────────────────────────────────────────┘\x1b[0m');
@@ -188,6 +192,43 @@ async function runTrainInteractive(rl) {
   await runTrain({ accountCount, keyword: keyword.trim(), modelCount });
 }
 
+// ── Automatic Mode ───────────────────────────────────────────────────
+
+async function runAutoInteractive(rl) {
+  console.log('');
+  console.log('  \x1b[35m┌──────────────────────────────────────────────────┐\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  \x1b[1m\x1b[32mAutomatic Mode\x1b[0m                                   \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m                                                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  Runs the full pipeline on repeat:               \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  Gen > Grab > Title > Upload > \x1b[33mrepeat\x1b[0m             \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m                                                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  Auto-rotates accounts at 200 model cap.         \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  Auto-generates new accounts when needed.        \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  Press Ctrl+C to stop.                           \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m└──────────────────────────────────────────────────┘\x1b[0m');
+  console.log('');
+
+  const keyword = await ask(rl, '  \x1b[36mModel keyword\x1b[0m (Enter to skip): ');
+  const modelsStr = await ask(rl, '  \x1b[36mModels per cycle?\x1b[0m [50]: ');
+  const delayStr = await ask(rl, '  \x1b[36mDelay between cycles (seconds)?\x1b[0m [30]: ');
+
+  const modelsPerCycle = parseInt(modelsStr, 10) || 50;
+  const delayBetweenCycles = (parseInt(delayStr, 10) || 30) * 1000;
+
+  rl.close();
+
+  console.log('');
+  console.log('  \x1b[32mStarting autonomous mode...\x1b[0m');
+  console.log('  \x1b[90mPress Ctrl+C to stop\x1b[0m');
+  console.log('');
+
+  await startAutonomous({
+    keyword: keyword.trim(),
+    modelsPerCycle,
+    delayBetweenCycles,
+  });
+}
+
 // ── Dashboard ────────────────────────────────────────────────────────
 
 function showDashboard() {
@@ -240,6 +281,17 @@ async function main() {
     process.exit(0);
   }
 
+  if (args[0] === 'auto') {
+    const rl = createPrompt();
+    await runAutoInteractive(rl);
+    process.exit(0);
+  }
+
+  if (args[0] === 'bot') {
+    startBot();
+    return; // bot keeps running
+  }
+
   // Interactive menu mode
   printBanner();
 
@@ -272,6 +324,19 @@ async function main() {
         break;
 
       case '6':
+        await runAutoInteractive(rl);
+        break;
+
+      case '7':
+        console.log('');
+        console.log('  \x1b[32mStarting Discord bot...\x1b[0m');
+        console.log('  \x1b[90mUse /mirror start, /mirror stop, /mirror stats in Discord\x1b[0m');
+        console.log('');
+        rl.close();
+        startBot();
+        return;
+
+      case '8':
         showDashboard();
         break;
 
@@ -285,7 +350,7 @@ async function main() {
         break;
 
       default:
-        console.log('  \x1b[31mInvalid choice.\x1b[0m Enter 1-6 or 0.');
+        console.log('  \x1b[31mInvalid choice.\x1b[0m Enter 1-8 or 0.');
     }
   }
 

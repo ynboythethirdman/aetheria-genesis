@@ -61,9 +61,10 @@ module.exports = {
     uploads: parseInt(process.env.MIRROR_UPLOAD_THREADS || '15', 10),
   },
 
-  // Discord Webhook
+  // Discord
   discord: {
     webhookUrl: process.env.MIRROR_DISCORD_WEBHOOK || '',
+    botToken: process.env.MIRROR_BOT_TOKEN || '',
   },
 
   // Output

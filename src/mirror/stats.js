@@ -22,6 +22,7 @@ function loadStats() {
     totalModelsDownloaded: 0,
     totalModelsUploaded: 0,
     totalModelsFailed: 0,
+    accountUploads: {},
     uploads: [],
     sessions: [],
   };
@@ -40,6 +41,11 @@ function recordUpload(modelTitle, assetId, accountUsername, success) {
   } else {
     stats.totalModelsFailed++;
   }
+  // Track per-account uploads (for 200 cap rotation)
+  if (!stats.accountUploads) stats.accountUploads = {};
+  if (!stats.accountUploads[accountUsername]) stats.accountUploads[accountUsername] = 0;
+  if (success) stats.accountUploads[accountUsername]++;
+
   stats.uploads.push({
     title: modelTitle,
     assetId: assetId || null,
@@ -47,11 +53,30 @@ function recordUpload(modelTitle, assetId, accountUsername, success) {
     success,
     timestamp: new Date().toISOString(),
   });
-  // Keep only last 200 uploads
-  if (stats.uploads.length > 200) {
-    stats.uploads = stats.uploads.slice(-200);
+  if (stats.uploads.length > 500) {
+    stats.uploads = stats.uploads.slice(-500);
   }
   saveStats(stats);
+}
+
+const MODEL_CAP_PER_ACCOUNT = 200;
+
+function getAccountUploadCount(username) {
+  const stats = loadStats();
+  return (stats.accountUploads && stats.accountUploads[username]) || 0;
+}
+
+function getAccountsAtCap() {
+  const stats = loadStats();
+  const atCap = [];
+  for (const [username, count] of Object.entries(stats.accountUploads || {})) {
+    if (count >= MODEL_CAP_PER_ACCOUNT) atCap.push(username);
+  }
+  return atCap;
+}
+
+function getRemainingUploads(username) {
+  return MODEL_CAP_PER_ACCOUNT - getAccountUploadCount(username);
 }
 
 function recordAccountCreated() {
@@ -134,4 +159,8 @@ function printDashboard(accounts) {
   }
 }
 
-module.exports = { loadStats, saveStats, recordUpload, recordAccountCreated, recordModelsDownloaded, recordSession, printDashboard };
+module.exports = {
+  loadStats, saveStats, recordUpload, recordAccountCreated, recordModelsDownloaded,
+  recordSession, printDashboard, getAccountUploadCount, getAccountsAtCap,
+  getRemainingUploads, MODEL_CAP_PER_ACCOUNT,
+};
