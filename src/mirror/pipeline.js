@@ -14,6 +14,8 @@ const { generateOneAccount, loadAccounts } = require('./c1');
 const { runA1 } = require('./a1');
 const { runB1 } = require('./b1');
 const { runB2 } = require('./b2');
+const { notifyPipelineSummary } = require('./discord');
+const { recordSession } = require('./stats');
 
 /**
  * Run the full C1 → A1 → B1 → B2 train pipeline.
@@ -26,16 +28,17 @@ const { runB2 } = require('./b2');
  */
 async function runTrain(options) {
   const { accountCount, keyword, modelCount } = options;
+  const startTime = Date.now();
 
   console.log('');
-  console.log('  ╔═══════════════════════════════════════════╗');
-  console.log('  ║        MIRROR — TRAIN PIPELINE            ║');
-  console.log('  ║     C1 → A1 → B1 → B2 (chained)         ║');
-  console.log('  ╚═══════════════════════════════════════════╝');
+  console.log('  \x1b[35m╔═══════════════════════════════════════════╗\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m        \x1b[1m\x1b[32mMIRROR — TRAIN PIPELINE\x1b[0m            \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m     Gen > Grab > Title > Upload            \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m╚═══════════════════════════════════════════╝\x1b[0m');
   console.log('');
-  console.log(`  Accounts:  ${accountCount}`);
-  console.log(`  Keyword:   ${keyword || '(popular models)'}`);
-  console.log(`  Models:    ${modelCount === 'auto' ? 'Automatic (top 10)' : modelCount}`);
+  console.log(`  Accounts:  \x1b[33m${accountCount}\x1b[0m`);
+  console.log(`  Keyword:   \x1b[33m${keyword || '(popular models)'}\x1b[0m`);
+  console.log(`  Models:    \x1b[33m${modelCount === 'auto' ? 'Automatic (top 10)' : modelCount}\x1b[0m`);
   console.log('');
 
   const allResults = [];
@@ -97,6 +100,33 @@ async function runTrain(options) {
   }
 
   console.log('  └───────┴──────────────────────┴────────────┴────────┴──────────┴─────────────┘');
+  console.log('');
+
+  // ── Record stats + Discord notification ────────────────────────────
+  const elapsed = Date.now() - startTime;
+  const mins = Math.floor(elapsed / 60000);
+  const secs = Math.floor((elapsed % 60000) / 1000);
+  const duration = `${mins}m ${secs}s`;
+
+  const totalModels = allResults.reduce((sum, r) => sum + (r.a1 ? r.a1.length : 0), 0);
+  const totalTitled = allResults.reduce((sum, r) => sum + (r.b1 ? r.b1.filter((b) => b.listing).length : 0), 0);
+  const totalPublished = allResults.reduce((sum, r) => sum + (r.b2 ? r.b2.filter((b) => b.published?.success).length : 0), 0);
+  const totalFailed = allResults.reduce((sum, r) => sum + (r.b2 ? r.b2.filter((b) => b.published && !b.published.success).length : 0), 0);
+  const totalAccounts = allResults.filter((r) => r.account).length;
+
+  const sessionSummary = {
+    accountsCreated: totalAccounts,
+    modelsDownloaded: totalModels,
+    modelsTitled: totalTitled,
+    modelsPublished: totalPublished,
+    modelsFailed: totalFailed,
+    duration,
+  };
+
+  recordSession(sessionSummary);
+  await notifyPipelineSummary(sessionSummary);
+
+  console.log(`  \x1b[90mCompleted in ${duration}\x1b[0m`);
   console.log('');
 
   return allResults;

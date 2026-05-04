@@ -8,11 +8,12 @@
     "generate-souls": "node src/agents/generateSouls.js",
     "dashboard": "node src/dashboard/server.js",
     "mirror": "node src/mirror/index.js",
-    "mirror:c1": "node src/mirror/index.js c1",
-    "mirror:a1": "node src/mirror/index.js a1",
-    "mirror:b1": "node src/mirror/index.js b1",
-    "mirror:b2": "node src/mirror/index.js b2",
+    "mirror:gen": "node src/mirror/index.js gen",
+    "mirror:grab": "node src/mirror/index.js grab",
+    "mirror:title": "node src/mirror/index.js title",
+    "mirror:upload": "node src/mirror/index.js upload",
     "mirror:train": "node src/mirror/index.js train",
+    "mirror:stats": "node src/mirror/index.js stats",
     "lint": "eslint src/"
   },
   "dependencies": {

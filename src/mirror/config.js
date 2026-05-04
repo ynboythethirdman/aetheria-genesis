@@ -54,8 +54,14 @@ module.exports = {
     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
   },
 
+  // Discord Webhook
+  discord: {
+    webhookUrl: process.env.MIRROR_DISCORD_WEBHOOK || '',
+  },
+
   // Output
   output: {
     accountsFile: process.env.MIRROR_ACCOUNTS_FILE || 'data/accounts.json',
+    statsFile: process.env.MIRROR_STATS_FILE || 'data/mirror_stats.json',
   },
 };

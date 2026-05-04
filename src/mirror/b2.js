@@ -14,6 +14,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { notifyModelUploaded } = require('./discord');
+const { recordUpload } = require('./stats');
 
 // ── CSRF Token Helper ────────────────────────────────────────────────
 
@@ -303,12 +305,23 @@ async function runB2(b1Results, account) {
       });
     }
 
+    const assetId = uploadResult.assetId || uploadResult.operationId || null;
+
     if (uploadResult.success) {
-      const id = uploadResult.assetId || uploadResult.operationId || 'pending';
-      console.log(`[B2]   Published! Asset: ${id}`);
+      console.log(`[B2]   Published! Asset: ${assetId || 'pending'}`);
     } else {
       console.error(`[B2]   Upload failed: ${uploadResult.error}`);
     }
+
+    // Record stats + send Discord webhook
+    recordUpload(listing.title, assetId, account.username, uploadResult.success);
+    await notifyModelUploaded({
+      title: listing.title,
+      assetId,
+      account: account.username,
+      tags: listing.tags,
+      status: uploadResult.success ? 'Uploaded' : `Failed: ${uploadResult.error}`,
+    });
 
     // Update CSRF token if it was refreshed
     if (uploadResult.csrfToken) {

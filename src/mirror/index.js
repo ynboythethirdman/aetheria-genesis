@@ -1,20 +1,18 @@
 #!/usr/bin/env node
 /**
- * Mirror — Main Entry Point
+ * Mirror — Roblox Automation Pipeline
  *
- * Interactive CLI with processes:
- *   C1     →  Roblox Account Generation + Verification
- *   A1     →  Model Search, Download (.rbxmx), & Deep-Nest Analysis
- *   B1     →  AI Title Generation + Emoji Selection (Groq)
- *   B2     →  Publish Models to Roblox Marketplace
- *   Train  →  C1 → A1 → B1 → B2 Pipeline
+ * Made by Devin & Metro
  *
  * Usage:
  *   node src/mirror/index.js              # Interactive menu
- *   node src/mirror/index.js c1           # Run C1 directly
- *   node src/mirror/index.js c1 5         # C1 with 5 accounts
- *   node src/mirror/index.js a1           # Run A1 directly
+ *   node src/mirror/index.js gen          # Generate accounts
+ *   node src/mirror/index.js gen 5        # Generate 5 accounts
+ *   node src/mirror/index.js grab         # Grab & modify models
+ *   node src/mirror/index.js title        # AI title generation
+ *   node src/mirror/index.js upload       # Upload models
  *   node src/mirror/index.js train        # Full pipeline
+ *   node src/mirror/index.js stats        # View dashboard
  */
 
 const readline = require('readline');
@@ -23,6 +21,7 @@ const { runA1 } = require('./a1');
 const { runTrain } = require('./pipeline');
 const { runB1 } = require('./b1');
 const { runB2 } = require('./b2');
+const { printDashboard } = require('./stats');
 
 // ── CLI Helpers ──────────────────────────────────────────────────────
 
@@ -37,61 +36,80 @@ function ask(rl, question) {
   return new Promise((resolve) => rl.question(question, resolve));
 }
 
+// ── Branding ─────────────────────────────────────────────────────────
+
+const QUOTES = [
+  '"Move in silence, let success make the noise."',
+  '"We don\'t follow trends — we set them."',
+  '"Built different. Coded different."',
+  '"Stack in silence. Ship in volume."',
+  '"The grind never stops. Neither does Mirror."',
+  '"Automation is the new hustle."',
+  '"While they sleep, Mirror works."',
+  '"Less talk. More uploads."',
+];
+
+function getQuote() {
+  return QUOTES[Math.floor(Math.random() * QUOTES.length)];
+}
+
 function printBanner() {
+  const q = getQuote();
   console.log('');
-  console.log('  ╔═══════════════════════════════════════════╗');
-  console.log('  ║              M I R R O R                  ║');
-  console.log('  ║                                           ║');
-  console.log('  ║   C1     Account Generation               ║');
-  console.log('  ║   A1     Model Search & Analysis          ║');
-  console.log('  ║   B1     AI Title Generator               ║');
-  console.log('  ║   B2     Model Publisher                   ║');
-  console.log('  ║   Train  C1 → A1 → B1 → B2 Pipeline      ║');
-  console.log('  ║                                           ║');
-  console.log('  ╚═══════════════════════════════════════════╝');
+  console.log('  \x1b[35m╔══════════════════════════════════════════════════════╗\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m                                                      \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m   \x1b[1m\x1b[35m███╗   ███╗ ██╗ ██████╗  ██████╗   ██████╗  ██████╗\x1b[0m \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m   \x1b[1m\x1b[35m████╗ ████║ ██║ ██╔══██╗ ██╔══██╗ ██╔═══██╗ ██╔══██╗\x1b[0m\x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m   \x1b[1m\x1b[35m██╔████╔██║ ██║ ██████╔╝ ██████╔╝ ██║   ██║ ██████╔╝\x1b[0m\x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m   \x1b[1m\x1b[35m██║╚██╔╝██║ ██║ ██╔══██╗ ██╔══██╗ ██║   ██║ ██╔══██╗\x1b[0m\x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m   \x1b[1m\x1b[35m██║ ╚═╝ ██║ ██║ ██║  ██║ ██║  ██║ ╚██████╔╝ ██║  ██║\x1b[0m\x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m   \x1b[1m\x1b[35m╚═╝     ╚═╝ ╚═╝ ╚═╝  ╚═╝ ╚═╝  ╚═╝  ╚═════╝  ╚═╝  ╚═╝\x1b[0m\x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m                                                      \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m   \x1b[90mMade by \x1b[37mDevin\x1b[90m & \x1b[37mMetro\x1b[0m                               \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m   \x1b[36m' + q.slice(0, 52).padEnd(52, ' ') + '\x1b[0m\x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m                                                      \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m╚══════════════════════════════════════════════════════╝\x1b[0m');
   console.log('');
 }
 
 function printMenu() {
-  console.log('  ┌─────────────────────────────────────────┐');
-  console.log('  │  Choose a process:                      │');
-  console.log('  │                                         │');
-  console.log('  │   [1]  C1 — Generate Roblox Accounts    │');
-  console.log('  │   [2]  A1 — Search & Analyze Models     │');
-  console.log('  │   [3]  B1 — AI Title Generator          │');
-  console.log('  │   [4]  B2 — Publish Models              │');
-  console.log('  │   [5]  Train — Full Pipeline             │');
-  console.log('  │   [6]  View Saved Accounts              │');
-  console.log('  │   [0]  Exit                             │');
-  console.log('  │                                         │');
-  console.log('  └─────────────────────────────────────────┘');
+  console.log('  \x1b[35m┌──────────────────────────────────────────────────┐\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  \x1b[1mWhat do you want to do?\x1b[0m                          \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m                                                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[1]\x1b[0m  Generate Accounts                           \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[2]\x1b[0m  Grab Models                                 \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[3]\x1b[0m  Generate Titles                              \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[4]\x1b[0m  Upload Models                                \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[5]\x1b[0m  \x1b[32mTrain\x1b[0m \x1b[90m(Full Pipeline)\x1b[0m                        \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[6]\x1b[0m  Dashboard & Stats                            \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[0]\x1b[0m  Exit                                         \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m                                                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m└──────────────────────────────────────────────────┘\x1b[0m');
   console.log('');
 }
 
-// ── C1 Interactive ───────────────────────────────────────────────────
+// ── Generate Accounts ────────────────────────────────────────────────
 
-async function runC1Interactive(rl) {
-  const countStr = await ask(rl, '  How many accounts to generate? [1]: ');
+async function runGenInteractive(rl) {
+  const countStr = await ask(rl, '  \x1b[36mHow many accounts?\x1b[0m [1]: ');
   const count = parseInt(countStr, 10) || 1;
   await runC1(count);
 }
 
-// ── A1 Interactive ───────────────────────────────────────────────────
+// ── Grab Models ──────────────────────────────────────────────────────
 
-async function runA1Interactive(rl) {
-  const keyword = await ask(rl, '  Enter search keyword (or press Enter for popular models): ');
+async function runGrabInteractive(rl) {
+  const keyword = await ask(rl, '  \x1b[36mSearch keyword\x1b[0m (Enter to skip): ');
 
   console.log('');
-  console.log('  ┌─────────────────────────────────────────┐');
-  console.log('  │  How many models?                       │');
-  console.log('  │                                         │');
-  console.log('  │   [A]  Automatic (top 10 popular)       │');
-  console.log('  │   [#]  Enter a specific number          │');
-  console.log('  │                                         │');
-  console.log('  └─────────────────────────────────────────┘');
+  console.log('  \x1b[35m┌──────────────────────────────────────────┐\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  How many models?                          \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[A]\x1b[0m  Automatic (top 10)                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[#]\x1b[0m  Enter a number                      \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m└──────────────────────────────────────────┘\x1b[0m');
   console.log('');
 
-  const countStr = await ask(rl, '  Choice [A]: ');
+  const countStr = await ask(rl, '  \x1b[36mChoice\x1b[0m [A]: ');
   const trimmed = countStr.trim().toLowerCase();
   const count = (!trimmed || trimmed === 'a') ? 'auto' : parseInt(trimmed, 10) || 'auto';
 
@@ -99,112 +117,82 @@ async function runA1Interactive(rl) {
   return a1Results;
 }
 
-// ── B1 Interactive ───────────────────────────────────────────────────
+// ── Generate Titles ──────────────────────────────────────────────────
 
-async function runB1Interactive(rl) {
+async function runTitleInteractive(rl) {
   console.log('');
-  console.log('  B1 requires A1 results. Running A1 first...');
+  console.log('  \x1b[90mGenerating titles requires models. Running Grab Models first...\x1b[0m');
   console.log('');
-  const a1Results = await runA1Interactive(rl);
+  const a1Results = await runGrabInteractive(rl);
   if (!a1Results || a1Results.length === 0) {
-    console.log('  No A1 results to process.');
+    console.log('  \x1b[31mNo models to title.\x1b[0m');
     return;
   }
   const b1Results = await runB1(a1Results);
   return b1Results;
 }
 
-// ── B2 Interactive ───────────────────────────────────────────────────
+// ── Upload Models ────────────────────────────────────────────────────
 
-async function runB2Interactive(rl) {
+async function runUploadInteractive(rl) {
   console.log('');
-  console.log('  B2 publishes models. Running A1 → B1 first...');
+  console.log('  \x1b[90mUpload requires titled models. Running full flow...\x1b[0m');
   console.log('');
-  const b1Results = await runB1Interactive(rl);
+  const b1Results = await runTitleInteractive(rl);
   if (!b1Results || b1Results.length === 0) {
-    console.log('  No B1 results to publish.');
+    console.log('  \x1b[31mNo models to upload.\x1b[0m');
     return;
   }
 
-  // Use the most recent account with a cookie
   const accounts = loadAccounts();
   const account = accounts.reverse().find((a) => a.cookie);
   if (!account) {
-    console.log('  No account with cookie found. Run C1 or Train first.');
+    console.log('  \x1b[31mNo account with cookie found. Run Generate Accounts or Train first.\x1b[0m');
     return;
   }
 
   await runB2(b1Results, account);
 }
 
-// ── View Accounts ────────────────────────────────────────────────────
-
-function viewAccounts() {
-  const fs = require('fs');
-  try {
-    if (!fs.existsSync(ACCOUNTS_FILE)) {
-      console.log('  No accounts saved yet.');
-      return;
-    }
-    const accounts = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8'));
-    if (accounts.length === 0) {
-      console.log('  No accounts saved yet.');
-      return;
-    }
-
-    console.log('');
-    console.log(`  Saved Accounts (${accounts.length}):`);
-    console.log('');
-    console.log('  ┌─────┬──────────────────────┬───────────────────────────────┬────────────────┐');
-    console.log('  │  #  │ Username             │ Email                         │ Status         │');
-    console.log('  ├─────┼──────────────────────┼───────────────────────────────┼────────────────┤');
-
-    for (let i = 0; i < accounts.length; i++) {
-      const a = accounts[i];
-      const user = (a.username || '').slice(0, 20).padEnd(20, ' ');
-      const email = (a.email || 'none').slice(0, 29).padEnd(29, ' ');
-      const status = (a.status || 'unknown').slice(0, 14).padEnd(14, ' ');
-      console.log(`  │ ${String(i + 1).padStart(3, ' ')} │ ${user} │ ${email} │ ${status} │`);
-    }
-
-    console.log('  └─────┴──────────────────────┴───────────────────────────────┴────────────────┘');
-    console.log('');
-  } catch (err) {
-    console.error(`  Error reading accounts: ${err.message}`);
-  }
-}
-
-// ── Train Interactive ────────────────────────────────────────────────
+// ── Train ────────────────────────────────────────────────────────────
 
 async function runTrainInteractive(rl) {
   console.log('');
-  console.log('  ┌─────────────────────────────────────────┐');
-  console.log('  │  Train Pipeline: C1 → A1                │');
-  console.log('  │  Creates accounts then immediately      │');
-  console.log('  │  uses them for model analysis.           │');
-  console.log('  └─────────────────────────────────────────┘');
+  console.log('  \x1b[35m┌──────────────────────────────────────────────────┐\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  \x1b[1m\x1b[32mTrain Pipeline\x1b[0m                                   \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m                                                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  Generate Account \x1b[33m>\x1b[0m Grab Models \x1b[33m>\x1b[0m AI Titles       \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  \x1b[33m>\x1b[0m Upload to Roblox                                \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m                                                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  All steps run automatically in sequence.        \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m└──────────────────────────────────────────────────┘\x1b[0m');
   console.log('');
 
-  const acctStr = await ask(rl, '  How many accounts to generate? [1]: ');
+  const acctStr = await ask(rl, '  \x1b[36mHow many accounts?\x1b[0m [1]: ');
   const accountCount = parseInt(acctStr, 10) || 1;
 
-  const keyword = await ask(rl, '  Model search keyword (Enter to skip): ');
+  const keyword = await ask(rl, '  \x1b[36mModel keyword\x1b[0m (Enter to skip): ');
 
   console.log('');
-  console.log('  ┌─────────────────────────────────────────┐');
-  console.log('  │  How many models per account?           │');
-  console.log('  │                                         │');
-  console.log('  │   [A]  Automatic (top 10 popular)       │');
-  console.log('  │   [#]  Enter a specific number          │');
-  console.log('  │                                         │');
-  console.log('  └─────────────────────────────────────────┘');
+  console.log('  \x1b[35m┌──────────────────────────────────────────┐\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m  Models per account?                       \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[A]\x1b[0m  Automatic (top 10)                  \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m│\x1b[0m   \x1b[33m[#]\x1b[0m  Enter a number                      \x1b[35m│\x1b[0m');
+  console.log('  \x1b[35m└──────────────────────────────────────────┘\x1b[0m');
   console.log('');
 
-  const modelStr = await ask(rl, '  Choice [A]: ');
+  const modelStr = await ask(rl, '  \x1b[36mChoice\x1b[0m [A]: ');
   const trimmed = modelStr.trim().toLowerCase();
   const modelCount = (!trimmed || trimmed === 'a') ? 'auto' : parseInt(trimmed, 10) || 'auto';
 
   await runTrain({ accountCount, keyword: keyword.trim(), modelCount });
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────
+
+function showDashboard() {
+  const accounts = loadAccounts();
+  printDashboard(accounts);
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
@@ -213,7 +201,7 @@ async function main() {
   const args = process.argv.slice(2);
 
   // Direct command mode
-  if (args[0] === 'c1') {
+  if (args[0] === 'gen' || args[0] === 'c1') {
     const count = parseInt(args[1], 10) || 1;
     await runC1(count);
     process.exit(0);
@@ -226,24 +214,29 @@ async function main() {
     process.exit(0);
   }
 
-  if (args[0] === 'a1') {
+  if (args[0] === 'grab' || args[0] === 'a1') {
     const rl = createPrompt();
-    await runA1Interactive(rl);
+    await runGrabInteractive(rl);
     rl.close();
     process.exit(0);
   }
 
-  if (args[0] === 'b1') {
+  if (args[0] === 'title' || args[0] === 'b1') {
     const rl = createPrompt();
-    await runB1Interactive(rl);
+    await runTitleInteractive(rl);
     rl.close();
     process.exit(0);
   }
 
-  if (args[0] === 'b2') {
+  if (args[0] === 'upload' || args[0] === 'b2') {
     const rl = createPrompt();
-    await runB2Interactive(rl);
+    await runUploadInteractive(rl);
     rl.close();
+    process.exit(0);
+  }
+
+  if (args[0] === 'stats' || args[0] === 'dashboard') {
+    showDashboard();
     process.exit(0);
   }
 
@@ -255,23 +248,23 @@ async function main() {
 
   while (running) {
     printMenu();
-    const choice = await ask(rl, '  > ');
+    const choice = await ask(rl, '  \x1b[35m>\x1b[0m ');
 
     switch (choice.trim()) {
       case '1':
-        await runC1Interactive(rl);
+        await runGenInteractive(rl);
         break;
 
       case '2':
-        await runA1Interactive(rl);
+        await runGrabInteractive(rl);
         break;
 
       case '3':
-        await runB1Interactive(rl);
+        await runTitleInteractive(rl);
         break;
 
       case '4':
-        await runB2Interactive(rl);
+        await runUploadInteractive(rl);
         break;
 
       case '5':
@@ -279,18 +272,20 @@ async function main() {
         break;
 
       case '6':
-        viewAccounts();
+        showDashboard();
         break;
 
       case '0':
       case 'exit':
       case 'quit':
         running = false;
-        console.log('  Goodbye.');
+        console.log('');
+        console.log('  \x1b[90m' + getQuote() + '\x1b[0m');
+        console.log('');
         break;
 
       default:
-        console.log('  Invalid choice. Enter 1-6 or 0.');
+        console.log('  \x1b[31mInvalid choice.\x1b[0m Enter 1-6 or 0.');
     }
   }
 
@@ -299,6 +294,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`[Mirror] Fatal: ${err.message}`);
+  console.error(`\x1b[31m[Mirror] Fatal: ${err.message}\x1b[0m`);
   process.exit(1);
 });
