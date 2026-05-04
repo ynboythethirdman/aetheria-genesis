@@ -22,7 +22,7 @@ const { runTrain } = require('./pipeline');
 const { runB1 } = require('./b1');
 const { runB2 } = require('./b2');
 const { printDashboard } = require('./stats');
-const { startAutonomous, stopAutonomous } = require('./autonomous');
+const { startAutonomous } = require('./autonomous');
 const { startBot } = require('./bot');
 
 // ── CLI Helpers ──────────────────────────────────────────────────────
