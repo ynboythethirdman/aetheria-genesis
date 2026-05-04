@@ -6,21 +6,23 @@
  *   C1     →  Roblox Account Generation + Verification
  *   A1     →  Model Search, Download (.rbxmx), & Deep-Nest Analysis
  *   B1     →  AI Title Generation + Emoji Selection (Groq)
- *   Train  →  C1 → A1 → B1 Pipeline
+ *   B2     →  Publish Models to Roblox Marketplace
+ *   Train  →  C1 → A1 → B1 → B2 Pipeline
  *
  * Usage:
  *   node src/mirror/index.js              # Interactive menu
  *   node src/mirror/index.js c1           # Run C1 directly
  *   node src/mirror/index.js c1 5         # C1 with 5 accounts
  *   node src/mirror/index.js a1           # Run A1 directly
- *   node src/mirror/index.js train        # Train pipeline
+ *   node src/mirror/index.js train        # Full pipeline
  */
 
 const readline = require('readline');
-const { runC1, ACCOUNTS_FILE } = require('./c1');
+const { runC1, ACCOUNTS_FILE, loadAccounts } = require('./c1');
 const { runA1 } = require('./a1');
 const { runTrain } = require('./pipeline');
 const { runB1 } = require('./b1');
+const { runB2 } = require('./b2');
 
 // ── CLI Helpers ──────────────────────────────────────────────────────
 
@@ -43,7 +45,8 @@ function printBanner() {
   console.log('  ║   C1     Account Generation               ║');
   console.log('  ║   A1     Model Search & Analysis          ║');
   console.log('  ║   B1     AI Title Generator               ║');
-  console.log('  ║   Train  C1 → A1 → B1 Pipeline            ║');
+  console.log('  ║   B2     Model Publisher                   ║');
+  console.log('  ║   Train  C1 → A1 → B1 → B2 Pipeline      ║');
   console.log('  ║                                           ║');
   console.log('  ╚═══════════════════════════════════════════╝');
   console.log('');
@@ -56,8 +59,9 @@ function printMenu() {
   console.log('  │   [1]  C1 — Generate Roblox Accounts    │');
   console.log('  │   [2]  A1 — Search & Analyze Models     │');
   console.log('  │   [3]  B1 — AI Title Generator          │');
-  console.log('  │   [4]  Train — C1 → A1 → B1 Pipeline   │');
-  console.log('  │   [5]  View Saved Accounts              │');
+  console.log('  │   [4]  B2 — Publish Models              │');
+  console.log('  │   [5]  Train — Full Pipeline             │');
+  console.log('  │   [6]  View Saved Accounts              │');
   console.log('  │   [0]  Exit                             │');
   console.log('  │                                         │');
   console.log('  └─────────────────────────────────────────┘');
@@ -106,7 +110,31 @@ async function runB1Interactive(rl) {
     console.log('  No A1 results to process.');
     return;
   }
-  await runB1(a1Results);
+  const b1Results = await runB1(a1Results);
+  return b1Results;
+}
+
+// ── B2 Interactive ───────────────────────────────────────────────────
+
+async function runB2Interactive(rl) {
+  console.log('');
+  console.log('  B2 publishes models. Running A1 → B1 first...');
+  console.log('');
+  const b1Results = await runB1Interactive(rl);
+  if (!b1Results || b1Results.length === 0) {
+    console.log('  No B1 results to publish.');
+    return;
+  }
+
+  // Use the most recent account with a cookie
+  const accounts = loadAccounts();
+  const account = accounts.reverse().find((a) => a.cookie);
+  if (!account) {
+    console.log('  No account with cookie found. Run C1 or Train first.');
+    return;
+  }
+
+  await runB2(b1Results, account);
 }
 
 // ── View Accounts ────────────────────────────────────────────────────
@@ -212,6 +240,13 @@ async function main() {
     process.exit(0);
   }
 
+  if (args[0] === 'b2') {
+    const rl = createPrompt();
+    await runB2Interactive(rl);
+    rl.close();
+    process.exit(0);
+  }
+
   // Interactive menu mode
   printBanner();
 
@@ -236,10 +271,14 @@ async function main() {
         break;
 
       case '4':
-        await runTrainInteractive(rl);
+        await runB2Interactive(rl);
         break;
 
       case '5':
+        await runTrainInteractive(rl);
+        break;
+
+      case '6':
         viewAccounts();
         break;
 
@@ -251,7 +290,7 @@ async function main() {
         break;
 
       default:
-        console.log('  Invalid choice. Enter 1, 2, 3, 4, 5, or 0.');
+        console.log('  Invalid choice. Enter 1-6 or 0.');
     }
   }
 
