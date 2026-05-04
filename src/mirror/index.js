@@ -16,6 +16,7 @@
 const readline = require('readline');
 const { runC1, ACCOUNTS_FILE } = require('./c1');
 const { runA1 } = require('./a1');
+const { runTrain } = require('./pipeline');
 
 // ── CLI Helpers ──────────────────────────────────────────────────────
 
@@ -35,8 +36,9 @@ function printBanner() {
   console.log('  ╔═══════════════════════════════════════════╗');
   console.log('  ║              M I R R O R                  ║');
   console.log('  ║                                           ║');
-  console.log('  ║   C1  Account Generation + Verification   ║');
-  console.log('  ║   A1  Model Search & Nest Analysis        ║');
+  console.log('  ║   C1     Account Generation               ║');
+  console.log('  ║   A1     Model Search & Analysis          ║');
+  console.log('  ║   Train  C1 → A1 Pipeline                 ║');
   console.log('  ║                                           ║');
   console.log('  ╚═══════════════════════════════════════════╝');
   console.log('');
@@ -48,7 +50,8 @@ function printMenu() {
   console.log('  │                                         │');
   console.log('  │   [1]  C1 — Generate Roblox Accounts    │');
   console.log('  │   [2]  A1 — Search & Analyze Models     │');
-  console.log('  │   [3]  View Saved Accounts              │');
+  console.log('  │   [3]  Train — C1 → A1 Pipeline        │');
+  console.log('  │   [4]  View Saved Accounts              │');
   console.log('  │   [0]  Exit                             │');
   console.log('  │                                         │');
   console.log('  └─────────────────────────────────────────┘');
@@ -122,6 +125,39 @@ function viewAccounts() {
   }
 }
 
+// ── Train Interactive ────────────────────────────────────────────────
+
+async function runTrainInteractive(rl) {
+  console.log('');
+  console.log('  ┌─────────────────────────────────────────┐');
+  console.log('  │  Train Pipeline: C1 → A1                │');
+  console.log('  │  Creates accounts then immediately      │');
+  console.log('  │  uses them for model analysis.           │');
+  console.log('  └─────────────────────────────────────────┘');
+  console.log('');
+
+  const acctStr = await ask(rl, '  How many accounts to generate? [1]: ');
+  const accountCount = parseInt(acctStr, 10) || 1;
+
+  const keyword = await ask(rl, '  Model search keyword (Enter to skip): ');
+
+  console.log('');
+  console.log('  ┌─────────────────────────────────────────┐');
+  console.log('  │  How many models per account?           │');
+  console.log('  │                                         │');
+  console.log('  │   [A]  Automatic (top 10 popular)       │');
+  console.log('  │   [#]  Enter a specific number          │');
+  console.log('  │                                         │');
+  console.log('  └─────────────────────────────────────────┘');
+  console.log('');
+
+  const modelStr = await ask(rl, '  Choice [A]: ');
+  const trimmed = modelStr.trim().toLowerCase();
+  const modelCount = (!trimmed || trimmed === 'a') ? 'auto' : parseInt(trimmed, 10) || 'auto';
+
+  await runTrain({ accountCount, keyword: keyword.trim(), modelCount });
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -131,6 +167,13 @@ async function main() {
   if (args[0] === 'c1') {
     const count = parseInt(args[1], 10) || 1;
     await runC1(count);
+    process.exit(0);
+  }
+
+  if (args[0] === 'train') {
+    const rl = createPrompt();
+    await runTrainInteractive(rl);
+    rl.close();
     process.exit(0);
   }
 
@@ -161,6 +204,10 @@ async function main() {
         break;
 
       case '3':
+        await runTrainInteractive(rl);
+        break;
+
+      case '4':
         viewAccounts();
         break;
 
@@ -172,7 +219,7 @@ async function main() {
         break;
 
       default:
-        console.log('  Invalid choice. Enter 1, 2, 3, or 0.');
+        console.log('  Invalid choice. Enter 1, 2, 3, 4, or 0.');
     }
   }
 

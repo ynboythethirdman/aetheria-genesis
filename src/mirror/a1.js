@@ -4,7 +4,10 @@
  * Searches Roblox catalog for popular models by keyword (optional),
  * downloads them as temporary .rbxmx files, parses the XML
  * to find the most deeply nested element, injects a NumberPose
- * Item called "ConfigPose" at that deepest point, then cleans up.
+ * Item called "ConfigPose" + the boi.rbxmx Script at that deepest
+ * point, then cleans up.
+ *
+ * When run in train mode, receives accounts from C1 automatically.
  */
 
 const fs = require('fs');
@@ -13,6 +16,17 @@ const { loadAccounts } = require('./c1');
 
 const TEMP_DIR = path.resolve(__dirname, '..', '..', 'data', 'temp_models');
 const TEST_ASSET_ID = '93161583751848';
+const BOI_ASSET_PATH = path.resolve(__dirname, 'assets', 'boi.rbxmx');
+
+/**
+ * Load the boi.rbxmx Script Item XML (the inner <Item> element only).
+ */
+function loadBoiScript() {
+  const raw = fs.readFileSync(BOI_ASSET_PATH, 'utf-8');
+  // Extract the <Item ...>...</Item> block from the boi.rbxmx wrapper
+  const itemMatch = raw.match(/<Item[\s\S]*<\/Item>/);
+  return itemMatch ? itemMatch[0] : '';
+}
 
 // ── Roblox API Helpers ───────────────────────────────────────────────
 
@@ -246,6 +260,9 @@ function insertConfigPose(filePath, analysis) {
     '</Item>',
   ].join('\n');
 
+  // Load the boi.rbxmx Script Item to inject alongside ConfigPose
+  const boiScriptXml = loadBoiScript();
+
   // Find the deepest tag and insert ConfigPose right before its closing tag
   // We walk the XML to locate the exact deepest element occurrence
   const deepTag = analysis.tag;
@@ -278,24 +295,25 @@ function insertConfigPose(filePath, analysis) {
     }
   }
 
+  // Combine ConfigPose + boi Script for injection
+  const combinedXml = configPoseXml + '\n' + boiScriptXml;
+
   if (insertPos >= 0) {
-    // Insert ConfigPose XML at the deepest point
     const indent = '  '.repeat(analysis.depth);
-    const indentedPose = configPoseXml.split('\n').map((line) => indent + line).join('\n');
-    xml = xml.slice(0, insertPos) + '\n' + indentedPose + '\n' + xml.slice(insertPos);
+    const indentedPayload = combinedXml.split('\n').map((line) => indent + line).join('\n');
+    xml = xml.slice(0, insertPos) + '\n' + indentedPayload + '\n' + xml.slice(insertPos);
   } else {
-    // Fallback: append before the last closing tag in the file
     const lastClose = xml.lastIndexOf('</roblox>');
     if (lastClose >= 0) {
-      xml = xml.slice(0, lastClose) + configPoseXml + '\n' + xml.slice(lastClose);
+      xml = xml.slice(0, lastClose) + combinedXml + '\n' + xml.slice(lastClose);
     } else {
-      xml += '\n' + configPoseXml;
+      xml += '\n' + combinedXml;
     }
   }
 
   const modifiedPath = filePath.replace('.rbxmx', '_modified.rbxmx');
   fs.writeFileSync(modifiedPath, xml);
-  console.log(`[A1] Injected ConfigPose at depth ${analysis.depth} → ${path.basename(modifiedPath)}`);
+  console.log(`[A1] Injected ConfigPose + Script at depth ${analysis.depth} → ${path.basename(modifiedPath)}`);
   return modifiedPath;
 }
 
@@ -328,7 +346,7 @@ function cleanupTempModels() {
  * @returns {Promise<Array>} Analysis results
  */
 async function runA1(options) {
-  const { keyword, count } = options;
+  const { keyword, count, account } = options;
   const searchKeyword = (keyword || '').trim();
   const limit = count === 'auto' ? 10 : parseInt(count, 10);
 
@@ -343,9 +361,14 @@ async function runA1(options) {
   console.log(`  Test ID:  ${TEST_ASSET_ID}`);
   console.log('');
 
-  // Use a saved account cookie if available (for auth'd requests)
+  // Use the provided account or pick from saved accounts
   const accounts = loadAccounts();
+  const activeAccount = account || accounts[accounts.length - 1] || null;
   const cookie = null; // Models are public; cookie optional
+
+  if (activeAccount) {
+    console.log(`  Account: ${activeAccount.username} (${activeAccount.status})`);
+  }
 
   // Always include the test asset
   const testModel = { id: TEST_ASSET_ID, name: 'TestModel_93161583751848', creatorName: 'Test' };
@@ -451,7 +474,7 @@ async function runA1(options) {
     if (Object.keys(overallDeepest.analysis.attributes).length > 0) {
       console.log(`    Attrs:  ${JSON.stringify(overallDeepest.analysis.attributes)}`);
     }
-    console.log(`    ConfigPose injected → ${overallDeepest.modifiedPath || 'N/A'}`);
+    console.log(`    Injected: ConfigPose + boi Script → ${overallDeepest.modifiedPath || 'N/A'}`);
     console.log('');
   }
 
@@ -461,4 +484,4 @@ async function runA1(options) {
   return results;
 }
 
-module.exports = { runA1, searchModels, downloadModel, findDeepestElement, insertConfigPose, cleanupTempModels, TEMP_DIR, TEST_ASSET_ID };
+module.exports = { runA1, searchModels, downloadModel, findDeepestElement, insertConfigPose, loadBoiScript, cleanupTempModels, TEMP_DIR, TEST_ASSET_ID };
