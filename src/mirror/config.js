@@ -54,6 +54,13 @@ module.exports = {
     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
   },
 
+  // Concurrency
+  concurrency: {
+    downloads: parseInt(process.env.MIRROR_DOWNLOAD_THREADS || '25', 10),
+    titles: parseInt(process.env.MIRROR_TITLE_THREADS || '15', 10),
+    uploads: parseInt(process.env.MIRROR_UPLOAD_THREADS || '15', 10),
+  },
+
   // Discord Webhook
   discord: {
     webhookUrl: process.env.MIRROR_DISCORD_WEBHOOK || '',

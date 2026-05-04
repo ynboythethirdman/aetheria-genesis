@@ -16,6 +16,8 @@ const fs = require('fs');
 const path = require('path');
 const { notifyModelUploaded } = require('./discord');
 const { recordUpload } = require('./stats');
+const { runPool } = require('./utils/pool');
+const config = require('./config');
 
 // ── CSRF Token Helper ────────────────────────────────────────────────
 
@@ -255,34 +257,24 @@ async function runB2(b1Results, account) {
   }
 
   const publishable = b1Results.filter((r) => r.listing && r.listing.modelPath);
+  const UPLOAD_CONCURRENCY = config.concurrency.uploads;
   console.log(`  Models:  ${publishable.length}`);
+  console.log(`  Threads: ${UPLOAD_CONCURRENCY}`);
   console.log('');
 
-  const b2Results = [];
-
-  for (let i = 0; i < b1Results.length; i++) {
-    const result = b1Results[i];
-
-    if (!result.listing || !result.listing.modelPath) {
-      b2Results.push({ ...result, published: null });
-      continue;
-    }
-
+  // Upload all publishable models concurrently
+  let uploadedCount = 0;
+  const uploadResults = await runPool(publishable, async (result) => {
     const listing = result.listing;
-    console.log(`[B2] (${i + 1}/${b1Results.length}) Publishing: ${listing.title}`);
 
-    // Read the model file
     let modelData;
     try {
       modelData = fs.readFileSync(listing.modelPath);
     } catch (err) {
-      console.error(`[B2]   Failed to read model: ${err.message}`);
-      b2Results.push({ ...result, published: { success: false, error: err.message } });
-      continue;
+      return { result, published: { success: false, error: err.message } };
     }
 
     // Try legacy upload first
-    console.log('[B2]   Attempting legacy upload...');
     let uploadResult = await uploadModelLegacy({
       cookie: account.cookie,
       csrfToken,
@@ -293,8 +285,6 @@ async function runB2(b1Results, account) {
 
     // If legacy fails, try Open Cloud API
     if (!uploadResult.success) {
-      console.log(`[B2]   Legacy failed: ${uploadResult.error}`);
-      console.log('[B2]   Attempting Open Cloud upload...');
       uploadResult = await uploadModelOpenCloud({
         cookie: account.cookie,
         csrfToken,
@@ -307,40 +297,42 @@ async function runB2(b1Results, account) {
 
     const assetId = uploadResult.assetId || uploadResult.operationId || null;
 
-    if (uploadResult.success) {
-      console.log(`[B2]   Published! Asset: ${assetId || 'pending'}`);
-    } else {
-      console.error(`[B2]   Upload failed: ${uploadResult.error}`);
-    }
-
-    // Record stats + send Discord webhook
+    // Record stats + Discord webhook (fire and forget)
     recordUpload(listing.title, assetId, account.username, uploadResult.success);
-    await notifyModelUploaded({
+    notifyModelUploaded({
       title: listing.title,
       assetId,
       account: account.username,
       tags: listing.tags,
       status: uploadResult.success ? 'Uploaded' : `Failed: ${uploadResult.error}`,
-    });
+    }).catch(() => {});
 
-    // Update CSRF token if it was refreshed
-    if (uploadResult.csrfToken) {
-      csrfToken = uploadResult.csrfToken;
+    uploadedCount++;
+    if (uploadedCount % 10 === 0 || uploadedCount === publishable.length) {
+      const ok = uploadResult.success ? '\x1b[32mOK\x1b[0m' : '\x1b[31mFAIL\x1b[0m';
+      console.log(`[B2] ${uploadedCount}/${publishable.length} uploaded — last: ${ok} ${listing.title.slice(0, 40)}`);
     }
 
-    b2Results.push({
-      ...result,
+    return {
+      result,
       published: {
         success: uploadResult.success,
         assetId: uploadResult.assetId || null,
         operationId: uploadResult.operationId || null,
         error: uploadResult.error,
       },
-    });
+    };
+  }, UPLOAD_CONCURRENCY);
 
-    // Small delay between uploads to avoid rate limiting
-    if (i < b1Results.length - 1) {
-      await new Promise((r) => setTimeout(r, 2000));
+  // Build final results array preserving order
+  const b2Results = [];
+  let uploadIdx = 0;
+  for (const b1Result of b1Results) {
+    if (!b1Result.listing || !b1Result.listing.modelPath) {
+      b2Results.push({ ...b1Result, published: null });
+    } else {
+      const ur = uploadResults[uploadIdx++];
+      b2Results.push({ ...b1Result, published: ur.published });
     }
   }
 

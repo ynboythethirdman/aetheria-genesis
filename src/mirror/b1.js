@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { runPool } = require('./utils/pool');
 
 const GROQ_API = config.groq.apiBase;
 const GROQ_KEY = config.groq.apiKey;
@@ -181,42 +182,52 @@ async function runB1(a1Results) {
   console.log(`  Assets:   ${a1Results.filter(r => r.modifiedPath).length}`);
   console.log('');
 
-  const b1Results = [];
+  const TITLE_CONCURRENCY = config.concurrency.titles;
+  const processable = a1Results.filter((r) => !r.error && r.modifiedPath);
+  console.log(`[B1] Generating ${processable.length} titles (${TITLE_CONCURRENCY} threads)...`);
+  console.log('');
+  let titleCount = 0;
 
-  for (let i = 0; i < a1Results.length; i++) {
-    const result = a1Results[i];
-
-    if (result.error || !result.modifiedPath) {
-      b1Results.push({ ...result, listing: null });
-      continue;
-    }
-
-    console.log(`[B1] (${i + 1}/${a1Results.length}) Generating listing for: ${result.model.name}`);
-
-    // Read a snippet of the model XML for context
+  // Generate all listings concurrently
+  const listings = await runPool(processable, async (result) => {
     let xmlSnippet = '';
     try {
       xmlSnippet = fs.readFileSync(result.modifiedPath, 'utf-8').substring(0, 500);
     } catch { /* ignore */ }
 
     const listing = await generateListing(result.model.name, xmlSnippet);
-    console.log(`[B1]   Title → ${listing.title}`);
+    titleCount++;
+    if (titleCount % 10 === 0 || titleCount === processable.length) {
+      console.log(`[B1] Progress: ${titleCount}/${processable.length} titles generated`);
+    }
+    return { result, listing };
+  }, TITLE_CONCURRENCY);
 
-    // Rename the file and save description
-    let modelPath = result.modifiedPath;
+  // Build results (rename files sequentially to avoid conflicts)
+  const b1Results = [];
+  let listingIdx = 0;
+
+  for (const a1Result of a1Results) {
+    if (a1Result.error || !a1Result.modifiedPath) {
+      b1Results.push({ ...a1Result, listing: null });
+      continue;
+    }
+
+    const { listing } = listings[listingIdx++];
+    console.log(`[B1]   ${listing.title}`);
+
+    let modelPath = a1Result.modifiedPath;
     let descPath = null;
     try {
-      const paths = renameAndSaveDescription(result.modifiedPath, listing.title, listing.description);
+      const paths = renameAndSaveDescription(a1Result.modifiedPath, listing.title, listing.description);
       modelPath = paths.modelPath;
       descPath = paths.descPath;
-      console.log(`[B1]   File  → ${path.basename(modelPath)}`);
-      console.log(`[B1]   Desc  → ${path.basename(descPath)}`);
     } catch (err) {
       console.error(`[B1]   Rename failed: ${err.message}`);
     }
 
     b1Results.push({
-      ...result,
+      ...a1Result,
       listing: {
         title: listing.title,
         emoji: listing.emoji,

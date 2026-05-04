@@ -13,6 +13,8 @@
 const fs = require('fs');
 const path = require('path');
 const { loadAccounts } = require('./c1');
+const { runPool } = require('./utils/pool');
+const config = require('./config');
 
 const TEMP_DIR = path.resolve(__dirname, '..', '..', 'data', 'temp_models');
 const CONFIG_POSE_VALUE = '93161583751848';
@@ -88,27 +90,20 @@ async function searchModels(keyword, limit, cookie) {
  * Fetch asset details from the economy API.
  */
 async function fetchAssetDetails(assetIds) {
-  const results = [];
-
-  for (const id of assetIds) {
+  return runPool(assetIds, async (id) => {
     try {
       const resp = await fetch(`https://economy.roblox.com/v2/assets/${id}/details`);
-      if (!resp.ok) {
-        results.push({ id, name: `Model_${id}`, creatorName: 'Unknown' });
-        continue;
-      }
+      if (!resp.ok) return { id, name: `Model_${id}`, creatorName: 'Unknown' };
       const data = await resp.json();
-      results.push({
+      return {
         id: data.AssetId || id,
         name: data.Name || `Model_${id}`,
         creatorName: data.Creator?.Name || 'Unknown',
-      });
+      };
     } catch {
-      results.push({ id, name: `Model_${id}`, creatorName: 'Unknown' });
+      return { id, name: `Model_${id}`, creatorName: 'Unknown' };
     }
-  }
-
-  return results;
+  }, 20);
 }
 
 /**
@@ -368,35 +363,34 @@ async function runA1(options) {
   console.log('  └─────┴────────────────────────────────────┴──────────────────┘');
   console.log('');
 
-  // ── Step 2: Download + Analyze ─────────────────────────────────────
-  const results = [];
-  let overallDeepest = { depth: 0, model: null, analysis: null };
+  // ── Step 2: Download + Analyze (concurrent) ───────────────────────
+  const DOWNLOAD_CONCURRENCY = config.concurrency.downloads;
+  console.log(`[A1] Downloading ${models.length} models (${DOWNLOAD_CONCURRENCY} threads)...`);
+  let downloadedCount = 0;
 
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
-    console.log(`[A1] (${i + 1}/${models.length}) Downloading: ${model.name} (${model.id})...`);
-
+  const results = await runPool(models, async (model) => {
     const filePath = await downloadModel(model.id, cookie);
     if (!filePath) {
-      results.push({ model, error: 'download_failed' });
-      continue;
+      downloadedCount++;
+      return { model, error: 'download_failed' };
     }
 
     const fileSize = fs.statSync(filePath).size;
-    console.log(`[A1]   Downloaded: ${(fileSize / 1024).toFixed(1)} KB`);
-
-    // Parse XML for deepest nesting
     const analysis = findDeepestElement(filePath);
-    console.log(`[A1]   Deepest element: <${analysis.tag}> at depth ${analysis.depth}`);
-    console.log(`[A1]   Path: ${analysis.path.join(' > ')}`);
-
-    // Inject ConfigPose at the deepest point
     const modifiedPath = insertConfigPose(filePath, analysis);
 
-    results.push({ model, filePath, modifiedPath, fileSize, analysis });
+    downloadedCount++;
+    if (downloadedCount % 10 === 0 || downloadedCount === models.length) {
+      console.log(`[A1] Progress: ${downloadedCount}/${models.length} models processed`);
+    }
 
-    if (analysis.depth > overallDeepest.depth) {
-      overallDeepest = { depth: analysis.depth, model, analysis, modifiedPath };
+    return { model, filePath, modifiedPath, fileSize, analysis };
+  }, DOWNLOAD_CONCURRENCY);
+
+  let overallDeepest = { depth: 0, model: null, analysis: null };
+  for (const r of results) {
+    if (r.analysis && r.analysis.depth > overallDeepest.depth) {
+      overallDeepest = { depth: r.analysis.depth, model: r.model, analysis: r.analysis, modifiedPath: r.modifiedPath };
     }
   }
 

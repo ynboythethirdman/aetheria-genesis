@@ -1,13 +1,13 @@
 /**
- * Mirror — Train Pipeline (C1 → A1 → B1 → B2)
+ * Mirror — Train Pipeline (Gen > Grab > Title > Upload)
  *
- * Full pipeline: account generation → model analysis → AI titles → publish.
- * Each account flows through like a train:
- *   1. C1 creates & saves an account (extracts .ROBLOSECURITY cookie)
- *   2. Account is immediately passed to A1
- *   3. A1 searches, downloads, analyzes, and injects into models
- *   4. B1 generates AI titles + emojis and renames the models
- *   5. B2 publishes the models to Roblox under the C1 account
+ * Full pipeline with concurrent processing:
+ *   1. C1 generates a pool of accounts upfront
+ *   2. A1 grabs models concurrently (25 threads)
+ *   3. B1 generates AI titles concurrently (15 threads)
+ *   4. B2 publishes models concurrently (15 threads per account)
+ *
+ * Accounts are distributed round-robin for uploads.
  */
 
 const { generateOneAccount, loadAccounts } = require('./c1');
@@ -16,108 +16,145 @@ const { runB1 } = require('./b1');
 const { runB2 } = require('./b2');
 const { notifyPipelineSummary } = require('./discord');
 const { recordSession } = require('./stats');
+const { runPool } = require('./utils/pool');
 
 /**
- * Run the full C1 → A1 → B1 → B2 train pipeline.
+ * Run the full pipeline.
  *
  * @param {object} options
- * @param {number} options.accountCount - Number of accounts to generate
+ * @param {number} options.accountCount - Number of accounts to generate (pool size)
  * @param {string} options.keyword - Model search keyword (optional)
  * @param {number|'auto'} options.modelCount - Models per account
- * @returns {Promise<Array>} Combined results
+ * @returns {Promise<object>} Combined results
  */
 async function runTrain(options) {
   const { accountCount, keyword, modelCount } = options;
   const startTime = Date.now();
 
   console.log('');
-  console.log('  \x1b[35m╔═══════════════════════════════════════════╗\x1b[0m');
-  console.log('  \x1b[35m║\x1b[0m        \x1b[1m\x1b[32mMIRROR — TRAIN PIPELINE\x1b[0m            \x1b[35m║\x1b[0m');
-  console.log('  \x1b[35m║\x1b[0m     Gen > Grab > Title > Upload            \x1b[35m║\x1b[0m');
-  console.log('  \x1b[35m╚═══════════════════════════════════════════╝\x1b[0m');
+  console.log('  \x1b[35m╔═══════════════════════════════════════════════════════╗\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m        \x1b[1m\x1b[32mMIRROR — TRAIN PIPELINE\x1b[0m                       \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m     Gen > Grab > Title > Upload                      \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m╚═══════════════════════════════════════════════════════╝\x1b[0m');
   console.log('');
   console.log(`  Accounts:  \x1b[33m${accountCount}\x1b[0m`);
   console.log(`  Keyword:   \x1b[33m${keyword || '(popular models)'}\x1b[0m`);
-  console.log(`  Models:    \x1b[33m${modelCount === 'auto' ? 'Automatic (top 10)' : modelCount}\x1b[0m`);
+  console.log(`  Models:    \x1b[33m${modelCount === 'auto' ? 'Automatic (top 10)' : modelCount + ' per account'}\x1b[0m`);
   console.log('');
 
-  const allResults = [];
+  // ── Phase 1: Generate Account Pool ─────────────────────────────────
+  console.log('  \x1b[35m━━━ Phase 1: Generating Account Pool ━━━\x1b[0m');
+  console.log('');
 
+  const accounts = [];
   for (let i = 1; i <= accountCount; i++) {
-    console.log('');
-    console.log(`  ═══ Train ${i}/${accountCount} ════════════════════════════`);
-    console.log('');
-
-    // ── C1: Generate account ───────────────────────────────────────
-    console.log(`  [Train] C1 → Generating account #${i}...`);
+    console.log(`  [Gen] Creating account ${i}/${accountCount}...`);
     const account = await generateOneAccount(i);
-
-    if (!account) {
-      console.log(`  [Train] C1 failed for account #${i} — skipping A1/B1/B2`);
-      allResults.push({ train: i, account: null, a1: null, b1: null, b2: null, error: 'c1_failed' });
-      continue;
+    if (account) {
+      accounts.push(account);
+      console.log(`  [Gen] \x1b[32m${account.username}\x1b[0m ready (cookie: ${account.cookie ? 'yes' : 'no'})`);
+    } else {
+      console.log(`  [Gen] \x1b[31mAccount ${i} failed\x1b[0m`);
     }
-
-    console.log(`  [Train] C1 done → ${account.username} (${account.status})`);
-
-    // ── A1: Analyze models with this account ───────────────────────
-    console.log(`  [Train] A1 → Using account: ${account.username}`);
-    const a1Results = await runA1({
-      keyword: keyword || '',
-      count: modelCount || 'auto',
-      account,
-    });
-
-    // ── B1: AI title generation ────────────────────────────────────
-    console.log(`  [Train] B1 → Generating AI titles...`);
-    const b1Results = await runB1(a1Results);
-
-    // ── B2: Publish to Roblox ──────────────────────────────────────
-    console.log(`  [Train] B2 → Publishing models...`);
-    const b2Results = await runB2(b1Results, account);
-
-    allResults.push({ train: i, account, a1: a1Results, b1: b1Results, b2: b2Results });
-    console.log(`  [Train] Train ${i}/${accountCount} complete`);
   }
 
-  // ── Summary ──────────────────────────────────────────────────────
-  console.log('');
-  console.log('  ╔══════════════════════════════════════════════════════════════════════════════╗');
-  console.log('  ║                         TRAIN PIPELINE SUMMARY                              ║');
-  console.log('  ╠══════════════════════════════════════════════════════════════════════════════╣');
-  console.log('');
-  console.log('  ┌───────┬──────────────────────┬────────────┬────────┬──────────┬─────────────┐');
-  console.log('  │ Train │ Account              │ C1 Status  │ Models │ Titled   │ Published   │');
-  console.log('  ├───────┼──────────────────────┼────────────┼────────┼──────────┼─────────────┤');
-
-  for (const r of allResults) {
-    const user = r.account ? r.account.username.slice(0, 20).padEnd(20, ' ') : 'FAILED'.padEnd(20, ' ');
-    const c1Status = r.account ? r.account.status.slice(0, 10).padEnd(10, ' ') : 'failed'.padEnd(10, ' ');
-    const models = r.a1 ? String(r.a1.length).padStart(4, ' ') : '   -';
-    const titled = r.b1 ? String(r.b1.filter((b) => b.listing).length).padStart(4, ' ') : '   -';
-    const published = r.b2 ? String(r.b2.filter((b) => b.published?.success).length).padStart(4, ' ') : '   -';
-    console.log(`  │ ${String(r.train).padStart(5, ' ')} │ ${user} │ ${c1Status} │ ${models}   │ ${titled}     │ ${published}        │`);
+  if (accounts.length === 0) {
+    console.log('  \x1b[31mNo accounts created — aborting pipeline.\x1b[0m');
+    return { accounts: [], results: [] };
   }
 
-  console.log('  └───────┴──────────────────────┴────────────┴────────┴──────────┴─────────────┘');
+  console.log('');
+  console.log(`  \x1b[32m${accounts.length} account(s) ready.\x1b[0m`);
   console.log('');
 
-  // ── Record stats + Discord notification ────────────────────────────
+  // ── Phase 2: Grab Models (concurrent) ──────────────────────────────
+  console.log('  \x1b[35m━━━ Phase 2: Grabbing Models ━━━\x1b[0m');
+  console.log('');
+
+  const a1Results = await runA1({
+    keyword: keyword || '',
+    count: modelCount || 'auto',
+    account: accounts[0],
+  });
+
+  if (!a1Results || a1Results.length === 0) {
+    console.log('  \x1b[31mNo models grabbed — aborting.\x1b[0m');
+    return { accounts, results: [] };
+  }
+
+  // ── Phase 3: Generate Titles (concurrent) ──────────────────────────
+  console.log('');
+  console.log('  \x1b[35m━━━ Phase 3: Generating Titles ━━━\x1b[0m');
+  console.log('');
+
+  const b1Results = await runB1(a1Results);
+
+  // ── Phase 4: Upload Models (concurrent, distributed across accounts) ─
+  console.log('');
+  console.log('  \x1b[35m━━━ Phase 4: Uploading Models ━━━\x1b[0m');
+  console.log('');
+
+  const accountsWithCookies = accounts.filter((a) => a.cookie);
+  if (accountsWithCookies.length === 0) {
+    console.log('  \x1b[31mNo accounts with cookies — cannot upload.\x1b[0m');
+    return { accounts, results: b1Results };
+  }
+
+  // Distribute models across accounts round-robin
+  const publishable = b1Results.filter((r) => r.listing && r.listing.modelPath);
+  const chunks = [];
+  for (let i = 0; i < accountsWithCookies.length; i++) {
+    chunks.push([]);
+  }
+  for (let i = 0; i < publishable.length; i++) {
+    chunks[i % accountsWithCookies.length].push(publishable[i]);
+  }
+
+  console.log(`  Distributing ${publishable.length} models across ${accountsWithCookies.length} account(s)`);
+  for (let i = 0; i < chunks.length; i++) {
+    console.log(`    ${accountsWithCookies[i].username}: ${chunks[i].length} models`);
+  }
+  console.log('');
+
+  // Upload concurrently — each account processes its chunk
+  const allB2Results = await Promise.all(
+    chunks.map((chunk, idx) => {
+      if (chunk.length === 0) return Promise.resolve([]);
+      return runB2(chunk, accountsWithCookies[idx]);
+    })
+  );
+
+  // Merge results back
+  const b2Flat = allB2Results.flat();
+
+  // ── Summary ────────────────────────────────────────────────────────
   const elapsed = Date.now() - startTime;
   const mins = Math.floor(elapsed / 60000);
   const secs = Math.floor((elapsed % 60000) / 1000);
   const duration = `${mins}m ${secs}s`;
 
-  const totalModels = allResults.reduce((sum, r) => sum + (r.a1 ? r.a1.length : 0), 0);
-  const totalTitled = allResults.reduce((sum, r) => sum + (r.b1 ? r.b1.filter((b) => b.listing).length : 0), 0);
-  const totalPublished = allResults.reduce((sum, r) => sum + (r.b2 ? r.b2.filter((b) => b.published?.success).length : 0), 0);
-  const totalFailed = allResults.reduce((sum, r) => sum + (r.b2 ? r.b2.filter((b) => b.published && !b.published.success).length : 0), 0);
-  const totalAccounts = allResults.filter((r) => r.account).length;
+  const totalPublished = b2Flat.filter((r) => r.published?.success).length;
+  const totalFailed = b2Flat.filter((r) => r.published && !r.published.success).length;
+
+  console.log('');
+  console.log('  \x1b[35m╔══════════════════════════════════════════════════════════╗\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m              \x1b[1mTRAIN PIPELINE COMPLETE\x1b[0m                    \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m╠══════════════════════════════════════════════════════════╣\x1b[0m');
+  console.log('  \x1b[35m║\x1b[0m                                                          \x1b[35m║\x1b[0m');
+  console.log(`  \x1b[35m║\x1b[0m   Accounts Created    \x1b[33m${String(accounts.length).padEnd(6)}\x1b[0m                          \x1b[35m║\x1b[0m`);
+  console.log(`  \x1b[35m║\x1b[0m   Models Grabbed      \x1b[33m${String(a1Results.length).padEnd(6)}\x1b[0m                          \x1b[35m║\x1b[0m`);
+  console.log(`  \x1b[35m║\x1b[0m   Titles Generated    \x1b[33m${String(b1Results.filter((r) => r.listing).length).padEnd(6)}\x1b[0m                          \x1b[35m║\x1b[0m`);
+  console.log(`  \x1b[35m║\x1b[0m   Models Uploaded     \x1b[32m${String(totalPublished).padEnd(6)}\x1b[0m                          \x1b[35m║\x1b[0m`);
+  console.log(`  \x1b[35m║\x1b[0m   Upload Failures     \x1b[31m${String(totalFailed).padEnd(6)}\x1b[0m                          \x1b[35m║\x1b[0m`);
+  console.log(`  \x1b[35m║\x1b[0m   Duration            \x1b[90m${duration.padEnd(6)}\x1b[0m                          \x1b[35m║\x1b[0m`);
+  console.log('  \x1b[35m║\x1b[0m                                                          \x1b[35m║\x1b[0m');
+  console.log('  \x1b[35m╚══════════════════════════════════════════════════════════╝\x1b[0m');
+  console.log('');
 
   const sessionSummary = {
-    accountsCreated: totalAccounts,
-    modelsDownloaded: totalModels,
-    modelsTitled: totalTitled,
+    accountsCreated: accounts.length,
+    modelsDownloaded: a1Results.length,
+    modelsTitled: b1Results.filter((r) => r.listing).length,
     modelsPublished: totalPublished,
     modelsFailed: totalFailed,
     duration,
@@ -126,10 +163,7 @@ async function runTrain(options) {
   recordSession(sessionSummary);
   await notifyPipelineSummary(sessionSummary);
 
-  console.log(`  \x1b[90mCompleted in ${duration}\x1b[0m`);
-  console.log('');
-
-  return allResults;
+  return { accounts, a1Results, b1Results, b2Results: b2Flat };
 }
 
 module.exports = { runTrain };
