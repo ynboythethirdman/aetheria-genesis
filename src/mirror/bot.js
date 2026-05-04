@@ -235,7 +235,7 @@ function makeEmbed(title, description, color) {
 
 // ── Event Handlers ───────────────────────────────────────────────────
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log('');
   console.log('  \x1b[35m╔═══════════════════════════════════════════╗\x1b[0m');
   console.log('  \x1b[35m║\x1b[0m   \x1b[1m\x1b[32mMIRROR BOT ONLINE\x1b[0m                       \x1b[35m║\x1b[0m');
