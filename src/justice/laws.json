@@ -1,0 +1,68 @@
+{
+  "legalCode": {
+    "version": "1.0",
+    "name": "The Code of Aetheria",
+    "crimes": {
+      "theft": {
+        "name": "Theft",
+        "description": "Taking another agent's resources without consent.",
+        "severity": "minor",
+        "minSentence": 60,
+        "maxSentence": 300,
+        "fine": 5,
+        "evidence_required": ["witness_testimony", "inventory_discrepancy"]
+      },
+      "assault": {
+        "name": "Assault",
+        "description": "Attacking another agent without provocation.",
+        "severity": "major",
+        "minSentence": 120,
+        "maxSentence": 600,
+        "fine": 10,
+        "evidence_required": ["witness_testimony", "health_log"]
+      },
+      "heresy": {
+        "name": "Heresy",
+        "description": "Speaking against the established religious doctrines.",
+        "severity": "variable",
+        "minSentence": 60,
+        "maxSentence": 900,
+        "fine": 3,
+        "evidence_required": ["chat_log", "belief_conflict"]
+      },
+      "fraud": {
+        "name": "Fraud / Scam",
+        "description": "Deceiving another agent in trade for personal gain.",
+        "severity": "major",
+        "minSentence": 120,
+        "maxSentence": 600,
+        "fine": 15,
+        "evidence_required": ["trade_log", "witness_testimony"]
+      },
+      "treason": {
+        "name": "Treason",
+        "description": "Conspiring to overthrow the established order.",
+        "severity": "capital",
+        "minSentence": 600,
+        "maxSentence": 1800,
+        "fine": 50,
+        "evidence_required": ["gossip_log", "witness_testimony", "rebellion_score"]
+      },
+      "strike_incitement": {
+        "name": "Strike Incitement",
+        "description": "Organizing labor disruptions against the Merchant Princes.",
+        "severity": "minor",
+        "minSentence": 30,
+        "maxSentence": 180,
+        "fine": 2,
+        "evidence_required": ["chat_log", "strike_participation"]
+      }
+    },
+    "rights": {
+      "trial": "Every accused agent has the right to a trial before the Arbiter.",
+      "defense": "The accused may speak in their own defense.",
+      "witnesses": "Witnesses from memory logs may be called to testify.",
+      "appeal": "Agents with high esteem may appeal a verdict once."
+    }
+  }
+}

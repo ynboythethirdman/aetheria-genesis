@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aetheria Genesis — Divine Cinema Command Center</title>
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0a12; --panel: #12121f; --border: #1e1e3a; --text: #c8c8e0;
+      --gold: #ffd700; --accent: #7b68ee; --red: #ff4444; --green: #44ff44;
+      --blue: #4488ff; --purple: #aa44ff; --orange: #ff8844; --cyan: #44ddff;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; overflow: hidden; height: 100vh; }
+
+    /* ── Top Bar ── */
+    .topbar { display: flex; align-items: center; justify-content: space-between; background: var(--panel); border-bottom: 1px solid var(--border); padding: 6px 16px; height: 42px; }
+    .topbar h1 { font-size: 15px; color: var(--gold); letter-spacing: 1px; }
+    .topbar .status { display: flex; gap: 16px; font-size: 12px; }
+    .topbar .status span { display: flex; align-items: center; gap: 4px; }
+    .topbar .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.on { background: var(--green); } .dot.off { background: var(--red); }
+
+    /* ── Tab Bar ── */
+    .tabs { display: flex; background: var(--panel); border-bottom: 1px solid var(--border); padding: 0 8px; }
+    .tab { padding: 8px 16px; cursor: pointer; font-size: 12px; color: #888; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+    .prayer-badge { background: var(--red); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-left: 4px; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    /* ── Main Area ── */
+    .main { display: flex; height: calc(100vh - 84px); }
+    .panel { display: none; flex: 1; overflow-y: auto; padding: 12px; }
+    .panel.active { display: flex; flex-direction: column; gap: 12px; }
+
+    /* ── GDP Ticker Strip ── */
+    .ticker { display: flex; gap: 20px; padding: 8px 12px; background: linear-gradient(90deg, #1a1a2e, var(--panel)); border: 1px solid var(--border); border-radius: 6px; flex-wrap: wrap; }
+    .ticker-item { display: flex; flex-direction: column; }
+    .ticker-label { font-size: 10px; color: #666; text-transform: uppercase; }
+    .ticker-value { font-size: 16px; font-weight: bold; }
+    .ticker-value.green { color: var(--green); } .ticker-value.red { color: var(--red); }
+    .ticker-value.gold { color: var(--gold); } .ticker-value.blue { color: var(--blue); }
+
+    /* ── Cards & Panels ── */
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+    .card-title { font-size: 12px; color: var(--gold); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+    /* ── Map ── */
+    #mapCanvas { width: 100%; background: #080814; border-radius: 6px; cursor: crosshair; }
+
+    /* ── Monologue Feed ── */
+    .feed { max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+    .feed-item { padding: 6px 8px; border-radius: 4px; background: rgba(255,255,255,0.03); border-left: 3px solid var(--accent); font-size: 12px; }
+    .feed-item .name { color: var(--gold); font-weight: bold; }
+    .feed-item .action-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; margin-left: 4px; color: #fff; }
+    .badge-chat { background: var(--blue); } .badge-move { background: var(--green); }
+    .badge-pray { background: var(--purple); } .badge-gossip { background: var(--orange); }
+    .badge-idle { background: #444; } .badge-trade { background: var(--cyan); }
+    .badge-scam { background: var(--red); } .badge-strike { background: var(--orange); }
+    .badge-work, .badge-gather { background: #666; } .badge-build { background: #886622; }
+    .badge-report_crime { background: var(--red); }
+    .emotion { font-size: 11px; color: #888; }
+
+    /* ── God Console ── */
+    .god-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .god-btn { padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; transition: all 0.2s; font-size: 12px; }
+    .god-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .god-btn.danger { border-color: #661111; } .god-btn.danger:hover { border-color: var(--red); color: var(--red); }
+    input, select, textarea { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; width: 100%; }
+    textarea { resize: vertical; min-height: 60px; }
+
+    /* ── Agent Roster ── */
+    .roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; max-height: 300px; overflow-y: auto; }
+    .roster-item { padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; cursor: pointer; border: 1px solid transparent; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+    .roster-item:hover { border-color: var(--gold); }
+    .roster-item .ri-name { color: var(--gold); font-weight: bold; }
+    .roster-item .ri-guild { color: var(--accent); }
+    .roster-item .ri-class { color: #888; }
+
+    /* ── Soul Window ── */
+    .soul-window { position: fixed; right: 12px; top: 90px; width: 320px; background: var(--panel); border: 1px solid var(--gold); border-radius: 10px; padding: 16px; z-index: 100; display: none; max-height: 80vh; overflow-y: auto; }
+    .soul-window.open { display: block; }
+    .soul-close { position: absolute; top: 8px; right: 12px; cursor: pointer; color: #888; font-size: 18px; }
+    .soul-close:hover { color: var(--red); }
+    .soul-name { font-size: 18px; color: var(--gold); margin-bottom: 4px; }
+    .soul-arch { color: var(--accent); font-size: 12px; margin-bottom: 8px; }
+    .soul-section { margin-top: 10px; }
+    .soul-section h4 { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px; }
+    .trait-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+    .trait-label { width: 80px; font-size: 11px; color: #aaa; }
+    .trait-fill { height: 6px; border-radius: 3px; background: var(--accent); transition: width 0.3s; }
+    .trait-track { flex: 1; height: 6px; border-radius: 3px; background: #222; }
+    .neural-stream { max-height: 150px; overflow-y: auto; font-size: 11px; color: #aaa; padding: 6px; background: rgba(0,0,0,0.3); border-radius: 4px; }
+    .neural-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+    /* ── Prayer Alert ── */
+    .prayer-alert { position: fixed; top: 50px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #2a1a3e, #1a1a2e); border: 2px solid var(--purple); border-radius: 12px; padding: 16px 24px; z-index: 200; display: none; min-width: 300px; max-width: 500px; }
+    .prayer-alert.show { display: block; animation: slideDown 0.3s ease; }
+    @keyframes slideDown { from { transform: translateX(-50%) translateY(-20px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
+    .prayer-alert .pa-title { color: var(--purple); font-size: 14px; font-weight: bold; margin-bottom: 6px; }
+    .prayer-alert .pa-agent { color: var(--gold); }
+    .prayer-alert .pa-text { color: var(--text); margin: 8px 0; }
+    .prayer-alert .pa-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .prayer-alert .pa-actions button { flex: 1; }
+
+    /* ── D3 Reputation Graph ── */
+    #repGraph { width: 100%; height: 400px; background: #080814; border-radius: 6px; }
+    #repGraph svg { width: 100%; height: 100%; }
+
+    /* ── Lore ── */
+    .lore-chapter { padding: 12px; margin-bottom: 10px; background: rgba(255,215,0,0.03); border-left: 3px solid var(--gold); border-radius: 4px; }
+    .lore-title { color: var(--gold); font-size: 14px; font-weight: bold; margin-bottom: 6px; }
+    .lore-content { color: #bbb; line-height: 1.5; white-space: pre-wrap; }
+
+    /* ── Justice ── */
+    .trial-entry { padding: 8px; margin-bottom: 6px; border-radius: 4px; border-left: 3px solid var(--red); background: rgba(255,0,0,0.03); }
+    .trial-verdict { font-weight: bold; }
+    .verdict-guilty { color: var(--red); } .verdict-innocent { color: var(--green); }
+
+    /* ── Layout Helpers ── */
+    .row { display: flex; gap: 12px; }
+    .col { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+    .scroll-area { max-height: 300px; overflow-y: auto; }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) { .row { flex-direction: column; } .soul-window { width: 90%; right: 5%; } }
+  </style>
+</head>
+<body>
+  <!-- Top Bar -->
+  <div class="topbar">
+    <h1>AETHERIA GENESIS — DIVINE CINEMA</h1>
+    <div class="status">
+      <span><span class="dot" id="connDot"></span> <span id="connLabel">Connecting...</span></span>
+      <span>Agents: <b id="agentCount">0</b></span>
+      <span>GDP: <b id="gdpMini" class="gold">0</b></span>
+      <span>Gini: <b id="giniMini">0</b></span>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-panel="overview">Overview</div>
+    <div class="tab" data-panel="monologue">Neural Streams</div>
+    <div class="tab" data-panel="economy">Economy</div>
+    <div class="tab" data-panel="justice">Justice</div>
+    <div class="tab" data-panel="reputation">Reputation Web</div>
+    <div class="tab" data-panel="lore">Lore Keeper</div>
+    <div class="tab" data-panel="god">God Console</div>
+    <div class="tab" data-panel="prayers" id="prayerTab">Prayers <span class="prayer-badge" id="prayerBadge" style="display:none">0</span></div>
+  </div>
+
+  <div class="main">
+    <!-- OVERVIEW PANEL -->
+    <div class="panel active" id="panel-overview">
+      <div class="ticker" id="tickerStrip">
+        <div class="ticker-item"><span class="ticker-label">Total Wealth</span><span class="ticker-value gold" id="tkWealth">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">GDP (60s)</span><span class="ticker-value green" id="tkGDP">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">Gini Coefficient</span><span class="ticker-value" id="tkGini">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">Active Agents</span><span class="ticker-value blue" id="tkAgents">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">Bounties</span><span class="ticker-value red" id="tkBounties">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">Doctrines</span><span class="ticker-value" id="tkDoctrines" style="color:var(--purple)">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">Guilds</span><span class="ticker-value" id="tkGuilds" style="color:var(--cyan)">6</span></div>
+        <div class="ticker-item"><span class="ticker-label">Strikes</span><span class="ticker-value" id="tkStrikes" style="color:var(--orange)">0</span></div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <div class="card">
+            <div class="card-title">Live Heatmap (click agent to inspect)</div>
+            <canvas id="mapCanvas" width="600" height="400"></canvas>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card">
+            <div class="card-title">Recent Activity</div>
+            <div class="feed" id="overviewFeed"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Guild Distribution</div>
+            <div id="guildDistro"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEURAL STREAMS PANEL -->
+    <div class="panel" id="panel-monologue">
+      <div class="card">
+        <div class="card-title">Inner Monologue Feed — Live Neural Streams</div>
+        <div class="feed" id="monologueFeed" style="max-height:calc(100vh - 180px)"></div>
+      </div>
+    </div>
+
+    <!-- ECONOMY PANEL -->
+    <div class="panel" id="panel-economy">
+      <div class="ticker" id="econTicker">
+        <div class="ticker-item"><span class="ticker-label">Total Wealth</span><span class="ticker-value gold" id="econWealth">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">GDP</span><span class="ticker-value green" id="econGDP">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">Gini</span><span class="ticker-value" id="econGini">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">Avg Wealth</span><span class="ticker-value blue" id="econAvg">0</span></div>
+        <div class="ticker-item"><span class="ticker-label">Injected</span><span class="ticker-value red" id="econInjected">0</span></div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <div class="card"><div class="card-title">Market Prices</div><div id="marketPrices"></div></div>
+          <div class="card"><div class="card-title">Open Disputes</div><div id="disputes" class="scroll-area"></div></div>
+        </div>
+        <div class="col">
+          <div class="card"><div class="card-title">Recent Trades</div><div id="recentTrades" class="scroll-area"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- JUSTICE PANEL -->
+    <div class="panel" id="panel-justice">
+      <div class="row">
+        <div class="col">
+          <div class="card"><div class="card-title">Active Bounties</div><div id="bountyList" class="scroll-area"></div></div>
+          <div class="card"><div class="card-title">Current Inmates</div><div id="inmateList" class="scroll-area"></div></div>
+        </div>
+        <div class="col">
+          <div class="card"><div class="card-title">Trial Log</div><div id="trialLog" class="scroll-area" style="max-height:500px"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- REPUTATION WEB PANEL -->
+    <div class="panel" id="panel-reputation">
+      <div class="card">
+        <div class="card-title">Reputation Web (Relationships)</div>
+        <div id="repGraph"></div>
+      </div>
+    </div>
+
+    <!-- LORE KEEPER PANEL -->
+    <div class="panel" id="panel-lore">
+      <div class="card">
+        <div class="card-title">World History — The Chronicles of Aetheria</div>
+        <button class="god-btn" onclick="generateLore()" style="margin-bottom:12px;max-width:200px">Generate Chapter Now</button>
+        <div id="loreChapters"></div>
+      </div>
+    </div>
+
+    <!-- GOD CONSOLE PANEL -->
+    <div class="panel" id="panel-god">
+      <div class="row">
+        <div class="col">
+          <div class="card">
+            <div class="card-title">God Powers</div>
+            <div style="margin-bottom:8px"><label>Target Agent:</label><select id="godTarget"></select></div>
+            <div class="god-grid">
+              <button class="god-btn danger" onclick="godAction('lightning')">Smite</button>
+              <button class="god-btn" onclick="godAction('whisper')">Divine Whisper</button>
+              <button class="god-btn" onclick="godAction('spawn-item')">Spawn Item</button>
+              <button class="god-btn" onclick="godAction('broadcast')">Broadcast Event</button>
+              <button class="god-btn" onclick="godAction('inject-emeralds')">Inject Emeralds</button>
+            </div>
+            <div style="margin-top:10px">
+              <label>Message / Item / Event:</label>
+              <textarea id="godMsg" placeholder="Enter message, item name, or event..."></textarea>
+            </div>
+            <div style="margin-top:6px">
+              <label>Emerald Amount:</label>
+              <input type="number" id="godAmount" value="10" min="1" />
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Event Log</div>
+            <div class="feed" id="godEventLog" style="max-height:200px"></div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card">
+            <div class="card-title">Agent Roster</div>
+            <div class="roster" id="agentRoster"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Emerging Doctrines</div>
+            <div id="doctrineList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRAYERS PANEL -->
+    <div class="panel" id="panel-prayers">
+      <div class="card">
+        <div class="card-title">Unanswered Prayers (Priority Alerts)</div>
+        <div id="prayerList"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Prayer History</div>
+        <div id="prayerHistory" class="scroll-area"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Soul Window (floating) -->
+  <div class="soul-window" id="soulWindow">
+    <span class="soul-close" onclick="closeSoul()">&times;</span>
+    <div class="soul-name" id="swName"></div>
+    <div class="soul-arch" id="swArch"></div>
+    <div class="soul-section"><h4>Guild & Class</h4><div id="swGuild"></div></div>
+    <div class="soul-section"><h4>Wealth</h4><div id="swWealth"></div></div>
+    <div class="soul-section"><h4>Needs (Maslow)</h4><div id="swNeeds"></div></div>
+    <div class="soul-section"><h4>Personality Traits</h4><div id="swTraits"></div></div>
+    <div class="soul-section"><h4>Secret Goal</h4><div id="swGoal" style="color:var(--red);font-style:italic"></div></div>
+    <div class="soul-section"><h4>Neural Stream</h4><div class="neural-stream" id="swStream"></div></div>
+    <div class="soul-section"><h4>Backstory</h4><div id="swBackstory" style="color:#888;font-size:11px"></div></div>
+  </div>
+
+  <!-- Prayer Alert Popup -->
+  <div class="prayer-alert" id="prayerAlert">
+    <div class="pa-title">A Soul Cries Out</div>
+    <div><span class="pa-agent" id="paAgent"></span> prays:</div>
+    <div class="pa-text" id="paText"></div>
+    <div style="font-size:11px;color:#888">Desperation: <span id="paDesp"></span></div>
+    <div class="pa-actions">
+      <input id="paResponse" placeholder="Your divine response..." style="flex:2" />
+      <button class="god-btn" onclick="answerPrayerPopup()">Answer</button>
+      <button class="god-btn" onclick="dismissPrayer()" style="color:#888">Ignore</button>
+    </div>
+  </div>
+
+<script>
+const socket = io();
+const agents = new Map();
+const neuralStreams = new Map();
+let selectedAgent = null;
+let currentPrayer = null;
+
+const EMOTION_COLORS = {
+  happy: '#44ff44', sad: '#4488ff', angry: '#ff4444', afraid: '#ffaa00',
+  curious: '#44ddff', neutral: '#888888', awed: '#aa44ff', suspicious: '#ff8844',
+  desperate: '#ff2222', proud: '#ffd700',
+};
+
+// ── Tab switching ──
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+  });
+});
+
+// ── Socket events ──
+socket.on('connect', () => {
+  document.getElementById('connDot').className = 'dot on';
+  document.getElementById('connLabel').textContent = 'Connected';
+});
+socket.on('disconnect', () => {
+  document.getElementById('connDot').className = 'dot off';
+  document.getElementById('connLabel').textContent = 'Disconnected';
+});
+
+socket.on('agents:list', list => {
+  list.forEach(a => agents.set(a.id, a));
+  updateAgentCount();
+  updateRoster();
+});
+
+socket.on('agent:spawn', data => {
+  agents.set(data.agentId, { id: data.agentId, name: data.name, guild: data.guild, ...data });
+  updateAgentCount();
+  updateRoster();
+  addFeedItem('overviewFeed', `${data.name} has entered the world`, 'spawn');
+});
+
+socket.on('agent:despawn', data => {
+  agents.delete(data.agentId);
+  updateAgentCount();
+});
+
+socket.on('agent:tick', data => {
+  agents.set(data.agentId, { ...agents.get(data.agentId), ...data });
+  // Neural stream
+  if (!neuralStreams.has(data.agentId)) neuralStreams.set(data.agentId, []);
+  const stream = neuralStreams.get(data.agentId);
+  stream.push({ thought: data.thought, action: data.action, emotion: data.emotion, secret_goal: data.secret_goal, time: Date.now() });
+  if (stream.length > 50) stream.shift();
+
+  addMonologueEntry(data);
+  addFeedItem('overviewFeed', `<span class="name">${data.name}</span>: ${data.thought}`, data.action);
+
+  if (selectedAgent === data.agentId) updateSoulWindow(data.agentId);
+  drawMap();
+});
+
+socket.on('economy:gdp_snapshot', snap => {
+  document.getElementById('tkWealth').textContent = snap.totalWealth;
+  document.getElementById('tkGDP').textContent = snap.gdp;
+  document.getElementById('tkGini').textContent = snap.gini;
+  document.getElementById('gdpMini').textContent = snap.totalWealth;
+  document.getElementById('giniMini').textContent = snap.gini;
+  document.getElementById('econWealth').textContent = snap.totalWealth;
+  document.getElementById('econGDP').textContent = snap.gdp;
+  document.getElementById('econGini').textContent = snap.gini;
+  document.getElementById('econAvg').textContent = snap.avgWealth;
+  document.getElementById('econInjected').textContent = snap.totalInjected;
+  const giniEl = document.getElementById('tkGini');
+  giniEl.style.color = snap.gini > 0.5 ? 'var(--red)' : snap.gini > 0.3 ? 'var(--orange)' : 'var(--green)';
+});
+
+socket.on('economy:snapshot', data => {
+  renderMarketPrices(data.marketPrices);
+  renderDisputes(data.openDisputes);
+  renderTrades(data.recentTrades);
+});
+
+socket.on('justice:trial', trial => {
+  addTrialEntry(trial);
+  addFeedItem('overviewFeed', `TRIAL: ${trial.accusedName} found ${trial.verdict} of ${trial.crimeName}`, 'report_crime');
+});
+
+socket.on('justice:bounty', bounty => {
+  document.getElementById('tkBounties').textContent = parseInt(document.getElementById('tkBounties').textContent) + 1;
+  addFeedItem('overviewFeed', `BOUNTY: ${bounty.targetName} wanted for ${bounty.crimeName}`, 'report_crime');
+});
+
+socket.on('justice:status', data => {
+  renderBounties(data.activeBounties);
+  renderInmates(data.inmates);
+  data.recentTrials.forEach(addTrialEntry);
+});
+
+socket.on('prayer:received', prayer => {
+  addPrayerEntry(prayer);
+  showPrayerAlert(prayer);
+  const badge = document.getElementById('prayerBadge');
+  badge.style.display = 'inline';
+  badge.textContent = parseInt(badge.textContent || 0) + 1;
+});
+
+socket.on('prayer:answered', data => {
+  addFeedItem('overviewFeed', `Prayer answered for ${data.prayer.agentName}`, 'pray');
+});
+
+socket.on('guilds:new_role', data => {
+  addFeedItem('overviewFeed', `NEW ROLE INVENTED: ${data.roles.join(', ')}`, 'gossip');
+});
+
+socket.on('guilds:status', data => {
+  renderGuildDistro(data.guildCounts);
+  document.getElementById('tkGuilds').textContent = Object.keys(data.guilds).length;
+});
+
+socket.on('lore:chapter', chapter => {
+  addLoreChapter(chapter);
+});
+
+socket.on('gossip:spread', data => {
+  addFeedItem('overviewFeed', `GOSSIP: ${data.source} says: "${data.rumor.slice(0,60)}..."`, 'gossip');
+});
+
+socket.on('god:event', data => {
+  addFeedItem('godEventLog', `God Event: ${data.event}`, 'lightning');
+});
+
+socket.on('god:whisper', data => {
+  addFeedItem('godEventLog', `Whispered to agent ${data.agentId}: "${data.message}"`, 'whisper');
+});
+
+// ── Map Drawing ──
+const canvas = document.getElementById('mapCanvas');
+const ctx = canvas.getContext('2d');
+
+function drawMap() {
+  ctx.fillStyle = '#080814';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Grid
+  ctx.strokeStyle = '#151530';
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x < canvas.width; x += 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+  for (let y = 0; y < canvas.height; y += 30) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+
+  for (const [id, agent] of agents) {
+    if (!agent.position) continue;
+    const x = ((agent.position.x % 300) + 300) % 300 * 2;
+    const y = ((agent.position.z % 200) + 200) % 200 * 2;
+    const color = EMOTION_COLORS[agent.emotion] || '#888';
+
+    // Glow
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, 12);
+    grad.addColorStop(0, color + '44');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - 12, y - 12, 24, 24);
+
+    // Dot
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    if (id === selectedAgent) {
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Label
+    ctx.fillStyle = '#888';
+    ctx.font = '9px sans-serif';
+    ctx.fillText(agent.name?.split(' ')[0] || '', x + 6, y + 3);
+  }
+}
+
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+
+  for (const [id, agent] of agents) {
+    if (!agent.position) continue;
+    const x = ((agent.position.x % 300) + 300) % 300 * 2;
+    const y = ((agent.position.z % 200) + 200) % 200 * 2;
+    if (Math.hypot(cx - x, cy - y) < 10) {
+      openSoulWindow(id);
+      return;
+    }
+  }
+});
+
+// ── Feed Helpers ──
+function addFeedItem(feedId, html, action) {
+  const feed = document.getElementById(feedId);
+  if (!feed) return;
+  const div = document.createElement('div');
+  div.className = 'feed-item';
+  const badgeClass = 'badge-' + (action || 'idle');
+  div.innerHTML = html + ` <span class="action-badge ${badgeClass}">${action || ''}</span>`;
+  feed.prepend(div);
+  while (feed.children.length > 100) feed.removeChild(feed.lastChild);
+}
+
+function addMonologueEntry(data) {
+  const feed = document.getElementById('monologueFeed');
+  const div = document.createElement('div');
+  div.className = 'feed-item';
+  div.style.borderLeftColor = EMOTION_COLORS[data.emotion] || '#888';
+  div.innerHTML = `<span class="name" style="cursor:pointer" onclick="openSoulWindow(${JSON.stringify(data.agentId)})">${data.name}</span>
+    <span class="action-badge badge-${data.action}">${data.action}</span>
+    <span class="emotion">[${data.emotion}]</span>
+    ${data.guild ? `<span style="color:var(--cyan);font-size:10px">${data.guild}</span>` : ''}
+    <br/><span style="color:#ccc">"${data.thought}"</span>
+    ${data.speech ? `<br/><span style="color:var(--green)">Says: "${data.speech}"</span>` : ''}
+    ${data.secret_goal ? `<br/><span style="color:var(--red);font-size:10px">Secret: ${data.secret_goal}</span>` : ''}`;
+  feed.prepend(div);
+  while (feed.children.length > 200) feed.removeChild(feed.lastChild);
+}
+
+// ── Soul Window ──
+function openSoulWindow(agentId) {
+  selectedAgent = agentId;
+  document.getElementById('soulWindow').classList.add('open');
+  updateSoulWindow(agentId);
+  document.getElementById('godTarget').value = agentId;
+}
+
+function closeSoul() {
+  selectedAgent = null;
+  document.getElementById('soulWindow').classList.remove('open');
+}
+
+function updateSoulWindow(agentId) {
+  const agent = agents.get(agentId);
+  if (!agent) return;
+
+  document.getElementById('swName').textContent = agent.name || 'Unknown';
+  document.getElementById('swArch').textContent = agent.archetype || '';
+  document.getElementById('swGuild').textContent = `${agent.guild || 'None'} | ${agent.socialClass || 'Unknown'}`;
+  document.getElementById('swWealth').textContent = `${agent.wealth || 0} emeralds`;
+  document.getElementById('swGoal').textContent = agent.secret_goal || 'None revealed';
+
+  // Needs
+  const needsDiv = document.getElementById('swNeeds');
+  if (agent.needs) {
+    needsDiv.innerHTML = Object.entries(agent.needs).map(([k, v]) =>
+      `<div class="trait-bar"><span class="trait-label">${k}</span><div class="trait-track"><div class="trait-fill" style="width:${(v||0)*100}%;background:${v < 0.3 ? 'var(--red)' : v < 0.6 ? 'var(--orange)' : 'var(--green)'}"></div></div></div>`
+    ).join('');
+  }
+
+  // Traits
+  const traitsDiv = document.getElementById('swTraits');
+  if (agent.traits) {
+    traitsDiv.innerHTML = Object.entries(agent.traits).map(([k, v]) =>
+      `<div class="trait-bar"><span class="trait-label">${k}</span><div class="trait-track"><div class="trait-fill" style="width:${(v||0)*100}%"></div></div></div>`
+    ).join('');
+  }
+
+  // Neural stream
+  const stream = neuralStreams.get(agentId) || [];
+  const streamDiv = document.getElementById('swStream');
+  streamDiv.innerHTML = stream.slice(-10).reverse().map(e =>
+    `<div class="neural-entry">[${e.action}] ${e.thought}</div>`
+  ).join('');
+
+  document.getElementById('swBackstory').textContent = agent.backstory || '';
+}
+
+// ── God Console ──
+async function godAction(type) {
+  const target = document.getElementById('godTarget').value;
+  const msg = document.getElementById('godMsg').value;
+  const amount = parseInt(document.getElementById('godAmount').value) || 10;
+
+  let body = {};
+  switch (type) {
+    case 'lightning': body = { agentId: target || undefined }; break;
+    case 'whisper': body = { agentId: target, message: msg }; break;
+    case 'spawn-item': body = { agentId: target, item: msg }; break;
+    case 'broadcast': body = { event: msg }; break;
+    case 'inject-emeralds': body = { agentId: target, amount }; break;
+  }
+
+  try {
+    await fetch('/api/god/' + type, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    addFeedItem('godEventLog', `Executed: ${type}`, type);
+  } catch (err) {
+    addFeedItem('godEventLog', `Failed: ${err.message}`, 'error');
+  }
+}
+
+// ── Roster ──
+function updateRoster() {
+  const roster = document.getElementById('agentRoster');
+  const target = document.getElementById('godTarget');
+  roster.innerHTML = '';
+  target.innerHTML = '<option value="">Random</option>';
+
+  for (const [id, agent] of agents) {
+    const div = document.createElement('div');
+    div.className = 'roster-item';
+    div.innerHTML = `<span class="ri-name">${agent.name}</span><span class="ri-guild">${agent.guild || ''}</span><span class="ri-class">${agent.socialClass || ''} | ${agent.wealth || 0}e</span>`;
+    div.onclick = () => openSoulWindow(id);
+    roster.appendChild(div);
+    target.innerHTML += `<option value="${id}">${agent.name}</option>`;
+  }
+}
+
+function updateAgentCount() { document.getElementById('agentCount').textContent = agents.size; document.getElementById('tkAgents').textContent = agents.size; }
+
+// ── Render helpers ──
+function renderGuildDistro(counts) {
+  const div = document.getElementById('guildDistro');
+  if (!counts) return;
+  div.innerHTML = Object.entries(counts).map(([g, c]) =>
+    `<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--cyan)">${g}</span><span>${c}</span></div>`
+  ).join('');
+}
+
+function renderMarketPrices(prices) {
+  const div = document.getElementById('marketPrices');
+  if (!prices) return;
+  div.innerHTML = Object.entries(prices).map(([item, price]) =>
+    `<div style="display:flex;justify-content:space-between;padding:2px 0"><span>${item}</span><span style="color:var(--gold)">${price}e</span></div>`
+  ).join('');
+}
+
+function renderDisputes(disputes) {
+  const div = document.getElementById('disputes');
+  if (!disputes) return;
+  div.innerHTML = disputes.length === 0 ? '<div style="color:#666">No open disputes</div>' :
+    disputes.map(d => `<div class="feed-item" style="border-left-color:var(--red)">${d.type}: ${d.amount}e — ${d.resolved ? 'Resolved' : 'Open'}</div>`).join('');
+}
+
+function renderTrades(trades) {
+  const div = document.getElementById('recentTrades');
+  if (!trades) return;
+  div.innerHTML = trades.length === 0 ? '<div style="color:#666">No trades yet</div>' :
+    trades.slice(-20).reverse().map(t => `<div class="feed-item">${t.from} → ${t.to}: ${t.amount}e</div>`).join('');
+}
+
+function renderBounties(bounties) {
+  const div = document.getElementById('bountyList');
+  div.innerHTML = (!bounties || bounties.length === 0) ? '<div style="color:#666">No active bounties</div>' :
+    bounties.map(b => `<div class="feed-item" style="border-left-color:var(--red)"><b>${b.targetName}</b> — ${b.crimeName} (reported by ${b.reportedBy})</div>`).join('');
+}
+
+function renderInmates(inmates) {
+  const div = document.getElementById('inmateList');
+  div.innerHTML = (!inmates || inmates.length === 0) ? '<div style="color:#666">No inmates</div>' :
+    inmates.map(i => `<div class="feed-item" style="border-left-color:var(--orange)">Agent ${i.agentId} — ${i.crime} (${i.remainingSeconds}s remaining)</div>`).join('');
+}
+
+function addTrialEntry(trial) {
+  const div = document.getElementById('trialLog');
+  const entry = document.createElement('div');
+  entry.className = 'trial-entry';
+  entry.innerHTML = `<div><b>${trial.accusedName}</b> — ${trial.crimeName}</div>
+    <div class="trial-verdict ${trial.verdict === 'guilty' ? 'verdict-guilty' : 'verdict-innocent'}">${trial.verdict.toUpperCase()}</div>
+    <div style="font-size:11px;color:#888">${trial.reasoning}</div>
+    <div style="font-size:11px;color:#aaa;margin-top:4px">"${trial.speech}"</div>`;
+  div.prepend(entry);
+}
+
+// ── Prayers ──
+function addPrayerEntry(prayer) {
+  const div = document.getElementById('prayerList');
+  const entry = document.createElement('div');
+  entry.className = 'feed-item';
+  entry.style.borderLeftColor = 'var(--purple)';
+  entry.id = 'prayer-' + prayer.id;
+  entry.innerHTML = `<b style="color:var(--gold)">${prayer.agentName}</b> (${prayer.archetype})<br/>
+    "${prayer.prayer}"<br/>
+    <span style="font-size:10px;color:#888">Desperation: ${(prayer.desperation * 100).toFixed(0)}% | Superstition: ${(prayer.superstition * 100).toFixed(0)}%</span><br/>
+    <div style="margin-top:4px;display:flex;gap:4px">
+      <input id="pray-resp-${prayer.id}" placeholder="Your answer..." style="flex:1;font-size:11px" />
+      <button class="god-btn" onclick="answerPrayer(${prayer.id})" style="padding:4px 8px;font-size:11px">Answer</button>
+    </div>`;
+  div.prepend(entry);
+}
+
+function showPrayerAlert(prayer) {
+  currentPrayer = prayer;
+  document.getElementById('paAgent').textContent = prayer.agentName;
+  document.getElementById('paText').textContent = prayer.prayer;
+  document.getElementById('paDesp').textContent = (prayer.desperation * 100).toFixed(0) + '%';
+  document.getElementById('paResponse').value = '';
+  document.getElementById('prayerAlert').classList.add('show');
+}
+
+function dismissPrayer() {
+  document.getElementById('prayerAlert').classList.remove('show');
+  currentPrayer = null;
+}
+
+async function answerPrayerPopup() {
+  if (!currentPrayer) return;
+  const response = document.getElementById('paResponse').value;
+  if (!response) return;
+  await fetch('/api/god/answer-prayer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prayerId: currentPrayer.id, response }) });
+  dismissPrayer();
+  const badge = document.getElementById('prayerBadge');
+  badge.textContent = Math.max(0, parseInt(badge.textContent || 1) - 1);
+  if (parseInt(badge.textContent) === 0) badge.style.display = 'none';
+}
+
+async function answerPrayer(prayerId) {
+  const input = document.getElementById('pray-resp-' + prayerId);
+  if (!input || !input.value) return;
+  await fetch('/api/god/answer-prayer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prayerId, response: input.value }) });
+  const el = document.getElementById('prayer-' + prayerId);
+  if (el) el.style.opacity = '0.4';
+}
+
+// ── Lore ──
+function addLoreChapter(chapter) {
+  const div = document.getElementById('loreChapters');
+  const entry = document.createElement('div');
+  entry.className = 'lore-chapter';
+  entry.innerHTML = `<div class="lore-title">${chapter.title}</div><div class="lore-content">${chapter.content}</div><div style="font-size:10px;color:#555;margin-top:6px">${new Date(chapter.generatedAt).toLocaleString()} | ${chapter.eventCount} events</div>`;
+  div.prepend(entry);
+}
+
+async function generateLore() {
+  const res = await fetch('/api/lore/generate', { method: 'POST' });
+  const chapter = await res.json();
+  if (chapter.content) addLoreChapter(chapter);
+}
+
+// ── Initial Data Load ──
+async function loadInitialData() {
+  try {
+    const [souls, economy, guilds, justice, prayers, lore, religion] = await Promise.all([
+      fetch('/api/souls').then(r => r.json()),
+      fetch('/api/economy').then(r => r.json()),
+      fetch('/api/guilds').then(r => r.json()),
+      fetch('/api/justice').then(r => r.json()),
+      fetch('/api/prayers').then(r => r.json()),
+      fetch('/api/lore').then(r => r.json()),
+      fetch('/api/religion').then(r => r.json()),
+    ]);
+
+    // Populate agents from souls (for roster even without MC)
+    souls.forEach(s => {
+      if (!agents.has(s.id)) {
+        agents.set(s.id, { id: s.id, name: s.name, archetype: s.archetype, traits: s.traits, backstory: s.backstory, guild: 'Loading...', wealth: 0 });
+      }
+    });
+    updateRoster();
+    updateAgentCount();
+
+    // Economy
+    if (economy.gdpHistory && economy.gdpHistory.length > 0) {
+      const latest = economy.gdpHistory[economy.gdpHistory.length - 1];
+      document.getElementById('tkWealth').textContent = latest.totalWealth;
+      document.getElementById('tkGDP').textContent = latest.gdp;
+      document.getElementById('tkGini').textContent = latest.gini;
+      document.getElementById('gdpMini').textContent = latest.totalWealth;
+      document.getElementById('giniMini').textContent = latest.gini;
+    }
+    renderMarketPrices(economy.marketPrices);
+    renderDisputes(economy.openDisputes);
+    renderTrades(economy.recentTrades);
+
+    // Guilds
+    renderGuildDistro(guilds.guildCounts);
+    if (guilds.guilds) document.getElementById('tkGuilds').textContent = Object.keys(guilds.guilds).length;
+    if (guilds.strike?.active) document.getElementById('tkStrikes').textContent = guilds.strike.strikers.length;
+
+    // Justice
+    renderBounties(justice.activeBounties);
+    renderInmates(justice.inmates);
+    if (justice.recentTrials) justice.recentTrials.forEach(addTrialEntry);
+    document.getElementById('tkBounties').textContent = (justice.activeBounties || []).length;
+
+    // Prayers
+    if (prayers.unanswered) {
+      prayers.unanswered.forEach(addPrayerEntry);
+      if (prayers.unanswered.length > 0) {
+        document.getElementById('prayerBadge').style.display = 'inline';
+        document.getElementById('prayerBadge').textContent = prayers.unanswered.length;
+      }
+    }
+
+    // Lore
+    if (lore.length > 0) lore.forEach(addLoreChapter);
+
+    // Religion
+    if (religion.doctrines) {
+      document.getElementById('tkDoctrines').textContent = religion.doctrines.length;
+      document.getElementById('doctrineList').innerHTML = religion.doctrines.map(d =>
+        `<div class="feed-item" style="border-left-color:var(--purple)"><b>${d.text}</b><br/><span style="font-size:10px;color:#888">Believers: ${d.believers.join(', ')}</span></div>`
+      ).join('');
+    }
+  } catch (err) {
+    console.error('Initial load error:', err);
+  }
+}
+
+loadInitialData();
+setInterval(drawMap, 2000);
+drawMap();
+</script>
+</body>
+</html>

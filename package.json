@@ -1,0 +1,39 @@
+{
+  "name": "aetheria-genesis",
+  "version": "1.0.0",
+  "description": "A 100-agent autonomous civilization in Minecraft — cloud-native, headless, Replit-ready.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "generate-souls": "node src/agents/generateSouls.js",
+    "dashboard": "node src/dashboard/server.js",
+    "mirror": "node src/mirror/index.js",
+    "mirror:gen": "node src/mirror/index.js gen",
+    "mirror:grab": "node src/mirror/index.js grab",
+    "mirror:title": "node src/mirror/index.js title",
+    "mirror:upload": "node src/mirror/index.js upload",
+    "mirror:train": "node src/mirror/index.js train",
+    "mirror:auto": "node src/mirror/index.js auto",
+    "mirror:bot": "node src/mirror/index.js bot",
+    "mirror:stats": "node src/mirror/index.js stats",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "cors": "^2.8.5",
+    "discord.js": "^14.26.4",
+    "express": "^4.19.0",
+    "ioredis": "^5.4.0",
+    "mineflayer": "^4.20.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "socket.io": "^4.7.5",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

