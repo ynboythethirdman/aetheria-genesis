@@ -127,97 +127,140 @@ async function humanClick(ctrl, element) {
 
 /**
  * Create a Roblox account via the signup page.
+ * Retries with a new username up to 5 times if the name is taken.
  *
  * @param {object} ctrl - Browser controller
  * @param {object} info - { username, password, birthMonth, birthDay, birthYear }
- * @returns {Promise<boolean>}
+ * @returns {Promise<{ success: boolean, username: string }>}
  */
 async function createAccount(ctrl, info) {
   const { page, tag } = ctrl;
+  const { generateUsername } = require('../utils/names');
+  const MAX_USERNAME_RETRIES = 5;
+  let currentUsername = info.username;
 
-  try {
-    await page.goto('https://www.roblox.com/', { waitUntil: 'networkidle', timeout: 30000 });
-    await randomDelay(2000, 4000);
-    await dismissPopups(page);
+  for (let attempt = 1; attempt <= MAX_USERNAME_RETRIES; attempt++) {
+    try {
+      await page.goto('https://www.roblox.com/', { waitUntil: 'networkidle', timeout: 30000 });
+      await randomDelay(2000, 4000);
+      await dismissPopups(page);
 
-    // Birthday
-    const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthSel = await page.$(SELECTORS.birthdayMonth);
-    if (monthSel) { await monthSel.selectOption(MONTHS[info.birthMonth || 6]); await randomDelay(300, 600); }
+      // Birthday
+      const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthSel = await page.$(SELECTORS.birthdayMonth);
+      if (monthSel) { await monthSel.selectOption(MONTHS[info.birthMonth || 6]); await randomDelay(300, 600); }
 
-    const daySel = await page.$(SELECTORS.birthdayDay);
-    if (daySel) { await daySel.selectOption(String(info.birthDay || 15).padStart(2, '0')); await randomDelay(300, 600); }
+      const daySel = await page.$(SELECTORS.birthdayDay);
+      if (daySel) { await daySel.selectOption(String(info.birthDay || 15).padStart(2, '0')); await randomDelay(300, 600); }
 
-    const yearSel = await page.$(SELECTORS.birthdayYear);
-    if (yearSel) { await yearSel.selectOption(String(info.birthYear || config.account.birthYear)); await randomDelay(500, 1000); }
+      const yearSel = await page.$(SELECTORS.birthdayYear);
+      if (yearSel) { await yearSel.selectOption(String(info.birthYear || config.account.birthYear)); await randomDelay(500, 1000); }
 
-    // Username
-    const userInput = await page.$(SELECTORS.signupUsername);
-    if (userInput) { await humanType(ctrl, userInput, info.username); await randomDelay(1000, 2000); }
-
-    // Password
-    const passInput = await page.$(SELECTORS.signupPassword);
-    if (passInput) { await humanType(ctrl, passInput, info.password); await randomDelay(500, 1000); }
-
-    // Gender (random)
-    if (chance(0.5)) {
-      const maleBtn = await page.$(SELECTORS.genderMale);
-      if (maleBtn) await humanClick(ctrl, maleBtn);
-    } else {
-      const femaleBtn = await page.$(SELECTORS.genderFemale);
-      if (femaleBtn) await humanClick(ctrl, femaleBtn);
-    }
-    await randomDelay(300, 600);
-
-    // Submit
-    const signupBtn = await page.$(SELECTORS.signupSubmit);
-    if (signupBtn) {
-      for (let w = 0; w < 20; w++) {
-        const disabled = await signupBtn.evaluate((el) => el.disabled);
-        if (!disabled) break;
-        await sleep(500);
+      // Username
+      const userInput = await page.$(SELECTORS.signupUsername);
+      if (userInput) {
+        await userInput.click({ clickCount: 3 });
+        await randomDelay(100, 200);
+        await humanType(ctrl, userInput, currentUsername);
+        await randomDelay(1000, 2000);
       }
-      await humanClick(ctrl, signupBtn);
-      console.log(`[Mirror:${tag}] Signup submitted for ${info.username}`);
-    }
 
-    // Handle CAPTCHA
-    console.log(`[Mirror:${tag}] Waiting for CAPTCHA or redirect...`);
-    const captchaFrame = await page.waitForSelector(
-      'iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], iframe[src*="captcha"]',
-      { timeout: 30000 }
-    ).catch(() => null);
+      // Check for username error before submitting
+      const usernameError = await page.$('.form-has-error .form-control-label, .username-error, [id*="UsernameError"]');
+      if (usernameError) {
+        const errText = await usernameError.textContent().catch(() => '');
+        if (errText && (errText.toLowerCase().includes('taken') || errText.toLowerCase().includes('not available') || errText.toLowerCase().includes('already in use'))) {
+          const oldName = currentUsername;
+          currentUsername = generateUsername();
+          console.log(`[Mirror:${tag}] Username "${oldName}" is taken — trying "${currentUsername}" (attempt ${attempt}/${MAX_USERNAME_RETRIES})`);
+          continue;
+        }
+      }
 
-    if (captchaFrame) {
-      console.log(`[Mirror:${tag}] CAPTCHA detected - attempting auto-solve...`);
-      await sleep(15000);
-      const solved = await solveFunCaptcha(page, tag);
-      if (solved) {
-        await page.waitForURL(/\/(home|discover)/, { timeout: 30000 }).catch(() => {});
+      // Password
+      const passInput = await page.$(SELECTORS.signupPassword);
+      if (passInput) { await humanType(ctrl, passInput, info.password); await randomDelay(500, 1000); }
+
+      // Gender (random)
+      if (chance(0.5)) {
+        const maleBtn = await page.$(SELECTORS.genderMale);
+        if (maleBtn) await humanClick(ctrl, maleBtn);
       } else {
-        console.log(`[Mirror:${tag}] Auto-solve failed - waiting for manual solve...`);
-        await page.waitForURL(/\/(home|discover)/, { timeout: 120000 }).catch(() => {
-          console.log(`[Mirror:${tag}] CAPTCHA timeout`);
-        });
+        const femaleBtn = await page.$(SELECTORS.genderFemale);
+        if (femaleBtn) await humanClick(ctrl, femaleBtn);
       }
-    }
+      await randomDelay(300, 600);
 
-    const currentUrl = page.url();
-    if (currentUrl.includes('/home') || currentUrl.includes('/discover')) {
-      console.log(`[Mirror:${tag}] Account created: ${info.username}`);
-      return true;
-    }
+      // Submit
+      const signupBtn = await page.$(SELECTORS.signupSubmit);
+      if (signupBtn) {
+        for (let w = 0; w < 20; w++) {
+          const disabled = await signupBtn.evaluate((el) => el.disabled);
+          if (!disabled) break;
+          await sleep(500);
+        }
+        await humanClick(ctrl, signupBtn);
+        console.log(`[Mirror:${tag}] Signup submitted for ${currentUsername}`);
+      }
 
-    const errorEl = await page.$(SELECTORS.signupError);
-    if (errorEl) {
-      const errorText = await errorEl.textContent();
-      if (errorText.trim()) console.log(`[Mirror:${tag}] Signup error: ${errorText.trim()}`);
+      // Wait briefly for error or CAPTCHA
+      await sleep(2000);
+
+      // Check for username-taken error after submit
+      const postError = await page.$(SELECTORS.signupError);
+      if (postError) {
+        const errorText = await postError.textContent().catch(() => '');
+        if (errorText && (errorText.toLowerCase().includes('taken') || errorText.toLowerCase().includes('not available') || errorText.toLowerCase().includes('already in use') || errorText.toLowerCase().includes('username'))) {
+          const oldName = currentUsername;
+          currentUsername = generateUsername();
+          console.log(`[Mirror:${tag}] Username "${oldName}" is taken — trying "${currentUsername}" (attempt ${attempt}/${MAX_USERNAME_RETRIES})`);
+          continue;
+        }
+      }
+
+      // Handle CAPTCHA
+      console.log(`[Mirror:${tag}] Waiting for CAPTCHA or redirect...`);
+      const captchaFrame = await page.waitForSelector(
+        'iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], iframe[src*="captcha"]',
+        { timeout: 30000 }
+      ).catch(() => null);
+
+      if (captchaFrame) {
+        console.log(`[Mirror:${tag}] CAPTCHA detected - attempting auto-solve...`);
+        await sleep(15000);
+        const solved = await solveFunCaptcha(page, tag);
+        if (solved) {
+          await page.waitForURL(/\/(home|discover)/, { timeout: 30000 }).catch(() => {});
+        } else {
+          console.log(`[Mirror:${tag}] Auto-solve failed - waiting for manual solve...`);
+          await page.waitForURL(/\/(home|discover)/, { timeout: 120000 }).catch(() => {
+            console.log(`[Mirror:${tag}] CAPTCHA timeout`);
+          });
+        }
+      }
+
+      const currentUrl = page.url();
+      if (currentUrl.includes('/home') || currentUrl.includes('/discover')) {
+        console.log(`[Mirror:${tag}] Account created: ${currentUsername}`);
+        info.username = currentUsername;
+        return true;
+      }
+
+      // Generic error — don't retry for non-username errors
+      const errorEl = await page.$(SELECTORS.signupError);
+      if (errorEl) {
+        const errorText = await errorEl.textContent();
+        if (errorText.trim()) console.log(`[Mirror:${tag}] Signup error: ${errorText.trim()}`);
+      }
+      return false;
+    } catch (err) {
+      console.error(`[Mirror:${tag}] Account creation error: ${err.message}`);
+      return false;
     }
-    return false;
-  } catch (err) {
-    console.error(`[Mirror:${tag}] Account creation error: ${err.message}`);
-    return false;
   }
+
+  console.log(`[Mirror:${tag}] Failed after ${MAX_USERNAME_RETRIES} username attempts`);
+  return false;
 }
 
 /**

@@ -82,18 +82,25 @@ async function generateOneAccount(index) {
 
     // ── Step 2: Create the Roblox account ──────────────────────────────
     console.log(`[C1:${tag}] Creating account: ${username}`);
-    const created = await createAccount(ctrl, {
+    const signupInfo = {
       username,
       password,
       birthMonth,
       birthDay,
       birthYear,
-    });
+    };
+    const created = await createAccount(ctrl, signupInfo);
 
     if (!created) {
       accountRecord.status = 'signup_failed';
       saveAccount(accountRecord);
       return null;
+    }
+
+    // Username may have changed if original was taken
+    if (signupInfo.username !== username) {
+      console.log(`[C1:${tag}] Username changed: ${username} → ${signupInfo.username}`);
+      accountRecord.username = signupInfo.username;
     }
 
     accountRecord.status = 'created';
