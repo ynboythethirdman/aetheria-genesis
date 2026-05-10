@@ -49,7 +49,7 @@ const commands = [
       sub.setName('start')
         .setDescription('Start the fully automatic pipeline')
         .addStringOption((opt) =>
-          opt.setName('keyword').setDescription('Search keyword (default: popular)').setRequired(false)
+          opt.setName('keyword').setDescription('Type . for popular, or enter a keyword').setRequired(false)
         )
         .addIntegerOption((opt) =>
           opt.setName('threads').setDescription('Upload threads per account (default: 15)').setRequired(false)
@@ -239,7 +239,8 @@ async function handleStart(interaction) {
     });
   }
 
-  const keyword = interaction.options.getString('keyword') || 'popular';
+  let keyword = interaction.options.getString('keyword') || 'popular';
+  if (keyword === '.' || keyword.toLowerCase() === 'popular') keyword = 'popular';
   const threads = interaction.options.getInteger('threads') || 15;
 
   statusChannel = interaction.channel;
@@ -263,7 +264,7 @@ async function handleStart(interaction) {
 
   // Start in background
   startAutonomous({
-    keyword: keyword === 'popular' ? '' : keyword,
+    keyword: (keyword === 'popular' || keyword === '.') ? '' : keyword,
     modelsPerCycle: 50,
     threads,
   }).catch((err) => {
