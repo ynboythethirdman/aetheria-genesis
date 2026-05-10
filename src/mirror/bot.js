@@ -392,6 +392,26 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+// ── Health Check (for cloud hosts like Remoud/Railway that need a port) ──
+
+const http = require('http');
+const PORT = process.env.PORT || 8080;
+
+function startHealthCheck() {
+  http.createServer((req, res) => {
+    const running = getRunningPipelines();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'online',
+      bot: client.user ? client.user.tag : 'connecting...',
+      pipelines: running.length,
+      uptime: process.uptime(),
+    }));
+  }).listen(PORT, () => {
+    console.log(`[Bot] Health check on :${PORT}`);
+  });
+}
+
 // ── Start ────────────────────────────────────────────────────────────
 
 function startBot() {
@@ -399,6 +419,7 @@ function startBot() {
     console.error('[Bot] MIRROR_BOT_TOKEN not set');
     process.exit(1);
   }
+  startHealthCheck();
   console.log('[Bot] Connecting to Discord...');
   client.login(BOT_TOKEN).catch((err) => {
     console.error('[Bot] Login failed:', err.message);
