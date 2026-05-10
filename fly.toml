@@ -1,0 +1,11 @@
+app = "mirror-bot"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+
+# No HTTP service needed — this is a Discord bot (worker process)
+# No [http_service] or [[services]] block
