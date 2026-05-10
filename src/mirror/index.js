@@ -222,10 +222,9 @@ async function runAutoInteractive(rl) {
   console.log('  \x1b[90mPress Ctrl+C to stop\x1b[0m');
   console.log('');
 
-  await startAutonomous({
+  await startAutonomous('cli', {
     keyword: keyword.trim(),
     modelsPerCycle,
-    delayBetweenCycles,
   });
 }
 

@@ -1,12 +1,14 @@
 /**
- * Mirror — Discord Bot
+ * Mirror — Discord Bot (Multi-Channel)
  *
- * Control Mirror from Discord (mobile-friendly).
+ * 3+ people can run pipelines simultaneously in different channels.
+ * Each channel gets its own independent pipeline with clean embeds.
+ *
  * Commands:
  *   /mirror start [keyword] [threads]  — start autonomous pipeline
- *   /mirror stop                       — stop current run
- *   /mirror stats                      — show dashboard
- *   /mirror status                     — check current run status
+ *   /mirror stop                       — stop this channel's run
+ *   /mirror stats                      — view dashboard
+ *   /mirror status                     — check all running pipelines
  *
  * Made by Devin & Metro
  */
@@ -20,24 +22,30 @@ const {
   setCycleCallback,
   setAlertCallback,
   getAvailableAccounts,
+  getRunningPipelines,
 } = require('./autonomous');
 const { loadStats, getRemainingUploads, MODEL_CAP_PER_ACCOUNT } = require('./stats');
 const { loadAccounts } = require('./c1');
 
 const BOT_TOKEN = process.env.MIRROR_BOT_TOKEN || '';
-const PURPLE = 0x7c3aed;
-const GREEN = 0x22c55e;
-const RED = 0xef4444;
-const YELLOW = 0xf59e0b;
-const GRAY = 0x374151;
+
+// ── Colors ───────────────────────────────────────────────────────────
+
+const C = {
+  brand:   0x8b5cf6, // Vibrant purple
+  success: 0x10b981, // Emerald green
+  danger:  0xef4444, // Red
+  warn:    0xf59e0b, // Amber
+  info:    0x6366f1, // Indigo
+  muted:   0x4b5563, // Gray
+  accent:  0x06b6d4, // Cyan
+};
 
 // ── Bot Setup ────────────────────────────────────────────────────────
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
-
-let statusChannel = null;
 
 // ── Slash Commands ───────────────────────────────────────────────────
 
@@ -52,17 +60,17 @@ const commands = [
           opt.setName('keyword').setDescription('Type . for popular, or enter a keyword').setRequired(false)
         )
         .addIntegerOption((opt) =>
-          opt.setName('threads').setDescription('Upload threads per account (default: 15)').setRequired(false)
+          opt.setName('threads').setDescription('Upload threads (default: 15)').setRequired(false)
         )
     )
     .addSubcommand((sub) =>
-      sub.setName('stop').setDescription('Stop the pipeline')
+      sub.setName('stop').setDescription('Stop this channel\'s pipeline')
     )
     .addSubcommand((sub) =>
       sub.setName('stats').setDescription('View the dashboard')
     )
     .addSubcommand((sub) =>
-      sub.setName('status').setDescription('Check if running')
+      sub.setName('status').setDescription('View all running pipelines')
     ),
 ];
 
@@ -79,161 +87,206 @@ async function registerCommands() {
   }
 }
 
-// ── Embed Builders ───────────────────────────────────────────────────
+// ── Embed Helpers ────────────────────────────────────────────────────
 
-function buildStartEmbed(keyword, threads) {
-  return new EmbedBuilder()
-    .setColor(GREEN)
-    .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-    .setTitle('Pipeline Started')
-    .setDescription(
-      '```\n' +
-      'Gen → Grab → Title → Upload → Repeat\n' +
-      '```'
-    )
-    .addFields(
-      { name: 'Keyword', value: `\`${keyword}\``, inline: true },
-      { name: 'Threads', value: `\`${threads}\``, inline: true },
-      { name: 'Mode', value: '`Automatic`', inline: true },
-    )
-    .setFooter({ text: 'Mirror by Devin & Metro • /mirror stop to halt' })
-    .setTimestamp();
+function progressBar(percent, length = 12) {
+  const filled = Math.round((percent / 100) * length);
+  return '▓'.repeat(filled) + '░'.repeat(length - filled);
 }
 
-function buildCycleEmbed(summary) {
-  const successRate = summary.modelsPublished + summary.modelsFailed > 0
-    ? Math.round((summary.modelsPublished / (summary.modelsPublished + summary.modelsFailed)) * 100)
-    : 0;
+function divider() {
+  return '─────────────────────────────';
+}
 
-  const color = summary.modelsFailed > summary.modelsPublished ? RED
-    : summary.modelsFailed > 0 ? YELLOW : GREEN;
+function uptime(startMs) {
+  if (!startMs) return '0s';
+  const diff = Date.now() - startMs;
+  const hrs = Math.floor(diff / 3600000);
+  const mins = Math.floor((diff % 3600000) / 60000);
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  return `${mins}m`;
+}
 
-  const bar = buildProgressBar(successRate);
+// ── Embed Builders ───────────────────────────────────────────────────
 
+function embedStart(keyword, threads, user) {
   return new EmbedBuilder()
-    .setColor(color)
-    .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-    .setTitle(`Cycle #${summary.cycle} Complete`)
-    .addFields(
-      { name: 'Uploaded', value: `\`${summary.modelsPublished}\``, inline: true },
-      { name: 'Failed', value: `\`${summary.modelsFailed}\``, inline: true },
-      { name: 'Duration', value: `\`${summary.duration}\``, inline: true },
-      { name: 'Success Rate', value: `${bar} \`${successRate}%\``, inline: false },
-      { name: 'Accounts Used', value: `\`${summary.accountsUsed}\``, inline: true },
-      { name: 'Models Grabbed', value: `\`${summary.modelsDownloaded}\``, inline: true },
-      { name: 'Titles Generated', value: `\`${summary.modelsTitled}\``, inline: true },
+    .setColor(C.success)
+    .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
+    .setDescription(
+      `### Pipeline Activated\n` +
+      `${divider()}\n` +
+      `> **Keyword** \`${keyword}\`\n` +
+      `> **Threads** \`${threads}\`\n` +
+      `> **Mode** \`Fully Automatic\`\n` +
+      `${divider()}\n` +
+      `\`\`\`\nGen → Grab → Title → Upload → Repeat\n\`\`\`\n` +
+      `Started by **${user}** — use \`/mirror stop\` to halt`
     )
     .setFooter({ text: 'Mirror by Devin & Metro' })
     .setTimestamp();
 }
 
-function buildStatsEmbed(stats, accounts) {
-  const totalUploads = stats.totalModelsUploaded || 0;
-  const totalFails = stats.totalModelsFailed || 0;
-  const totalRate = totalUploads + totalFails > 0
-    ? Math.round((totalUploads / (totalUploads + totalFails)) * 100) : 0;
+function embedCycle(summary) {
+  const total = summary.modelsPublished + summary.modelsFailed;
+  const rate = total > 0 ? Math.round((summary.modelsPublished / total) * 100) : 100;
+  const bar = progressBar(rate);
+  const color = rate >= 80 ? C.success : rate >= 50 ? C.warn : C.danger;
+
+  return new EmbedBuilder()
+    .setColor(color)
+    .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
+    .setDescription(
+      `### Cycle #${summary.cycle}\n` +
+      `${divider()}\n\n` +
+      `**${summary.modelsPublished}** uploaded  ·  **${summary.modelsFailed}** failed  ·  **${summary.duration}**\n\n` +
+      `\`${bar}\` **${rate}%** success\n\n` +
+      `${divider()}\n` +
+      `> Grabbed \`${summary.modelsDownloaded}\` · Titled \`${summary.modelsTitled}\` · Accounts \`${summary.accountsUsed}\``
+    )
+    .setFooter({ text: `Mirror by Devin & Metro • ${summary.keyword || 'popular'}` })
+    .setTimestamp();
+}
+
+function embedStats(stats, accounts) {
+  const uploaded = stats.totalModelsUploaded || 0;
+  const failed = stats.totalModelsFailed || 0;
+  const rate = uploaded + failed > 0 ? Math.round((uploaded / (uploaded + failed)) * 100) : 0;
+  const sessions = (stats.sessions || []).length;
+  const bar = progressBar(rate);
 
   const embed = new EmbedBuilder()
-    .setColor(PURPLE)
-    .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-    .setTitle('Dashboard')
+    .setColor(C.brand)
+    .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
     .setDescription(
-      '```\n' +
-      `Uploaded    ${String(totalUploads).padStart(6)}  │  Failed     ${String(totalFails).padStart(6)}\n` +
-      `Accounts    ${String(stats.totalAccountsCreated || 0).padStart(6)}  │  Downloaded ${String(stats.totalModelsDownloaded || 0).padStart(6)}\n` +
-      `Success     ${String(totalRate + '%').padStart(6)}  │  Sessions   ${String((stats.sessions || []).length).padStart(6)}\n` +
-      '```'
+      `### Dashboard\n` +
+      `${divider()}\n\n` +
+      `**Models**\n` +
+      `> Uploaded \`${uploaded}\` · Failed \`${failed}\` · Downloaded \`${stats.totalModelsDownloaded || 0}\`\n` +
+      `> \`${bar}\` **${rate}%** success rate\n\n` +
+      `**Overview**\n` +
+      `> Accounts \`${stats.totalAccountsCreated || 0}\` · Sessions \`${sessions}\`\n\n` +
+      `${divider()}`
     );
 
-  // Account list
+  // Accounts
   if (accounts.length > 0) {
-    const lines = accounts.slice(-10).map((a) => {
-      const uploads = (stats.accountUploads && stats.accountUploads[a.username]) || 0;
-      const remaining = MODEL_CAP_PER_ACCOUNT - uploads;
-      const bar = buildProgressBar(Math.round((uploads / MODEL_CAP_PER_ACCOUNT) * 100), 8);
-      const status = remaining > 0 ? `${remaining} left` : '**FULL**';
-      return `${bar} \`${a.username}\` — ${uploads}/200 (${status})`;
+    const lines = accounts.slice(-8).map((a) => {
+      const ups = (stats.accountUploads && stats.accountUploads[a.username]) || 0;
+      const pct = Math.round((ups / MODEL_CAP_PER_ACCOUNT) * 100);
+      const bar = progressBar(pct, 8);
+      const tag = ups >= MODEL_CAP_PER_ACCOUNT ? '`FULL`' : `\`${MODEL_CAP_PER_ACCOUNT - ups} left\``;
+      return `\`${bar}\` **${a.username}** — ${ups}/200 ${tag}`;
     });
-    embed.addFields({ name: 'Accounts', value: lines.join('\n') || 'None' });
+    embed.addFields({ name: '🔑 Accounts', value: lines.join('\n') });
   }
 
   // Recent uploads
   const recent = (stats.uploads || []).slice(-5).reverse();
   if (recent.length > 0) {
     const lines = recent.map((u) => {
-      const icon = u.success ? '🟢' : '🔴';
-      const title = (u.title || '').slice(0, 30);
-      const time = u.timestamp ? `<t:${Math.floor(new Date(u.timestamp).getTime() / 1000)}:R>` : '';
-      return `${icon} ${title} ${time}`;
+      const dot = u.success ? '`🟢`' : '`🔴`';
+      const title = (u.title || 'Untitled').slice(0, 28);
+      const ts = u.timestamp ? `<t:${Math.floor(new Date(u.timestamp).getTime() / 1000)}:R>` : '';
+      return `${dot} ${title} ${ts}`;
     });
-    embed.addFields({ name: 'Recent', value: lines.join('\n') });
+    embed.addFields({ name: '📋 Recent', value: lines.join('\n') });
   }
 
-  embed
-    .addFields({
-      name: 'Status',
-      value: isRunning() ? `🟢 Running — Cycle #${getCurrentCycle()}` : '⚫ Idle',
-    })
-    .setFooter({ text: 'Mirror by Devin & Metro' })
-    .setTimestamp();
+  // Running pipelines
+  const running = getRunningPipelines();
+  if (running.length > 0) {
+    const lines = running.map((p) => {
+      return `> \`#${p.cycle}\` **${p.keyword || 'popular'}** — ${uptime(p.startedAt)} — by ${p.startedBy}`;
+    });
+    embed.addFields({ name: '⚡ Active Pipelines', value: lines.join('\n') });
+  } else {
+    embed.addFields({ name: '⚡ Status', value: '`Idle` — use `/mirror start` to begin' });
+  }
 
+  embed.setFooter({ text: 'Mirror by Devin & Metro' }).setTimestamp();
   return embed;
 }
 
-function buildStatusEmbed(available, totalCapacity) {
-  if (!isRunning()) {
+function embedStatus() {
+  const running = getRunningPipelines();
+  const available = getAvailableAccounts();
+  let totalCapacity = 0;
+  for (const a of available) totalCapacity += getRemainingUploads(a.username);
+
+  if (running.length === 0) {
     return new EmbedBuilder()
-      .setColor(GRAY)
-      .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-      .setTitle('Idle')
-      .setDescription('No pipeline running.\nUse `/mirror start` to begin.')
+      .setColor(C.muted)
+      .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
+      .setDescription(
+        `### Idle\n` +
+        `${divider()}\n\n` +
+        `No pipelines running.\n` +
+        `Use \`/mirror start\` to begin.\n\n` +
+        `> **${available.length}** accounts available · **${totalCapacity}** upload capacity`
+      )
       .setFooter({ text: 'Mirror by Devin & Metro' })
       .setTimestamp();
   }
 
+  const lines = running.map((p, i) => {
+    return `> **${i + 1}.** \`${p.keyword || 'popular'}\` — Cycle #${p.cycle} — ${uptime(p.startedAt)} — <#${p.channelId}>`;
+  });
+
   return new EmbedBuilder()
-    .setColor(GREEN)
-    .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-    .setTitle('Running')
-    .addFields(
-      { name: 'Cycle', value: `\`#${getCurrentCycle()}\``, inline: true },
-      { name: 'Accounts', value: `\`${available.length}\``, inline: true },
-      { name: 'Capacity', value: `\`${totalCapacity} models\``, inline: true },
+    .setColor(C.success)
+    .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
+    .setDescription(
+      `### ${running.length} Pipeline${running.length > 1 ? 's' : ''} Running\n` +
+      `${divider()}\n\n` +
+      lines.join('\n') + '\n\n' +
+      `${divider()}\n` +
+      `> **${available.length}** accounts · **${totalCapacity}** capacity remaining\n` +
+      `> Use \`/mirror stop\` in a channel to halt its pipeline`
     )
-    .setDescription('Use `/mirror stop` to halt after current cycle.')
     .setFooter({ text: 'Mirror by Devin & Metro' })
     .setTimestamp();
 }
 
-function buildAlertEmbed(type, msg) {
-  const colors = { critical: RED, error: RED, warning: YELLOW, accounts: PURPLE, info: GRAY };
+function embedAlert(type, msg) {
+  const colors = { critical: C.danger, error: C.danger, warning: C.warn, accounts: C.info, info: C.muted };
   const icons = { critical: '🚨', error: '❌', warning: '⚠️', accounts: '👤', info: 'ℹ️' };
 
   return new EmbedBuilder()
-    .setColor(colors[type] || PURPLE)
-    .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-    .setTitle(`${icons[type] || '⚠️'} ${type.charAt(0).toUpperCase() + type.slice(1)}`)
-    .setDescription(msg)
+    .setColor(colors[type] || C.brand)
+    .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
+    .setDescription(
+      `### ${icons[type] || '⚠️'} ${type.charAt(0).toUpperCase() + type.slice(1)}\n` +
+      `${divider()}\n\n${msg}`
+    )
     .setFooter({ text: 'Mirror by Devin & Metro' })
     .setTimestamp();
 }
 
-function buildProgressBar(percent, length = 10) {
-  const filled = Math.round((percent / 100) * length);
-  const empty = length - filled;
-  return '`' + '█'.repeat(filled) + '░'.repeat(empty) + '`';
+function embedStopping() {
+  return new EmbedBuilder()
+    .setColor(C.warn)
+    .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
+    .setDescription(
+      `### Stopping\n` +
+      `${divider()}\n\n` +
+      `Pipeline will stop after the current cycle finishes.`
+    )
+    .setFooter({ text: 'Mirror by Devin & Metro' })
+    .setTimestamp();
 }
 
 // ── Command Handlers ─────────────────────────────────────────────────
 
 async function handleStart(interaction) {
-  if (isRunning()) {
+  const channelId = interaction.channelId;
+
+  if (isRunning(channelId)) {
     return interaction.reply({
       embeds: [new EmbedBuilder()
-        .setColor(YELLOW)
-        .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-        .setTitle('Already Running')
-        .setDescription('Use `/mirror stop` first.')
+        .setColor(C.warn)
+        .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
+        .setDescription('Pipeline already running in this channel.\nUse `/mirror stop` first.')
         .setTimestamp()],
       ephemeral: true,
     });
@@ -242,76 +295,64 @@ async function handleStart(interaction) {
   let keyword = interaction.options.getString('keyword') || 'popular';
   if (keyword === '.' || keyword.toLowerCase() === 'popular') keyword = 'popular';
   const threads = interaction.options.getInteger('threads') || 15;
+  const userName = interaction.user.displayName || interaction.user.username;
 
-  statusChannel = interaction.channel;
+  await interaction.reply({ embeds: [embedStart(keyword, threads, userName)] });
 
-  await interaction.reply({ embeds: [buildStartEmbed(keyword, threads)] });
+  // Start pipeline for this channel
+  const pipelineKeyword = (keyword === 'popular' || keyword === '.') ? '' : keyword;
 
-  // Only send cycle summaries + alerts (no spam)
-  setCycleCallback(async (summary) => {
-    if (!statusChannel) return;
-    try {
-      await statusChannel.send({ embeds: [buildCycleEmbed(summary)] });
-    } catch { /* ignore */ }
-  });
-
-  setAlertCallback(async (type, msg) => {
-    if (!statusChannel) return;
-    try {
-      await statusChannel.send({ embeds: [buildAlertEmbed(type, msg)] });
-    } catch { /* ignore */ }
-  });
-
-  // Start in background
-  startAutonomous({
-    keyword: (keyword === 'popular' || keyword === '.') ? '' : keyword,
+  startAutonomous(channelId, {
+    keyword: pipelineKeyword,
     modelsPerCycle: 50,
     threads,
+    startedBy: userName,
   }).catch((err) => {
-    if (statusChannel) {
-      statusChannel.send({
-        embeds: [buildAlertEmbed('critical', `Pipeline crashed: ${err.message}`)],
-      }).catch(() => {});
-    }
+    interaction.channel.send({
+      embeds: [embedAlert('critical', `Pipeline crashed: ${err.message}`)],
+    }).catch(() => {});
+  });
+
+  // Wire up callbacks after pipeline is created
+  setCycleCallback(channelId, async (summary) => {
+    try {
+      await interaction.channel.send({ embeds: [embedCycle(summary)] });
+    } catch { /* ignore */ }
+  });
+
+  setAlertCallback(channelId, async (type, msg) => {
+    try {
+      await interaction.channel.send({ embeds: [embedAlert(type, msg)] });
+    } catch { /* ignore */ }
   });
 }
 
 async function handleStop(interaction) {
-  if (!isRunning()) {
+  const channelId = interaction.channelId;
+
+  if (!isRunning(channelId)) {
     return interaction.reply({
       embeds: [new EmbedBuilder()
-        .setColor(GRAY)
-        .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-        .setTitle('Not Running')
-        .setDescription('Nothing to stop.')
+        .setColor(C.muted)
+        .setAuthor({ name: 'MIRROR', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
+        .setDescription('No pipeline running in this channel.')
         .setTimestamp()],
       ephemeral: true,
     });
   }
 
-  stopAutonomous();
-  await interaction.reply({
-    embeds: [new EmbedBuilder()
-      .setColor(YELLOW)
-      .setAuthor({ name: 'Mirror', iconURL: 'https://i.imgur.com/7kJZfVP.png' })
-      .setTitle('Stopping')
-      .setDescription('Pipeline will stop after current cycle.')
-      .setFooter({ text: 'Mirror by Devin & Metro' })
-      .setTimestamp()],
-  });
+  stopAutonomous(channelId);
+  await interaction.reply({ embeds: [embedStopping()] });
 }
 
 async function handleStats(interaction) {
   const stats = loadStats();
   const accounts = loadAccounts();
-  await interaction.reply({ embeds: [buildStatsEmbed(stats, accounts)] });
+  await interaction.reply({ embeds: [embedStats(stats, accounts)] });
 }
 
 async function handleStatus(interaction) {
-  const available = getAvailableAccounts();
-  let totalCapacity = 0;
-  for (const a of available) totalCapacity += getRemainingUploads(a.username);
-  await interaction.reply({ embeds: [buildStatusEmbed(available, totalCapacity)] });
+  await interaction.reply({ embeds: [embedStatus()] });
 }
 
 // ── Event Handlers ───────────────────────────────────────────────────
@@ -335,10 +376,10 @@ client.on('interactionCreate', async (interaction) => {
   const sub = interaction.options.getSubcommand();
   try {
     switch (sub) {
-      case 'start': return handleStart(interaction);
-      case 'stop': return handleStop(interaction);
-      case 'stats': return handleStats(interaction);
-      case 'status': return handleStatus(interaction);
+      case 'start': return await handleStart(interaction);
+      case 'stop': return await handleStop(interaction);
+      case 'stats': return await handleStats(interaction);
+      case 'status': return await handleStatus(interaction);
       default:
         return interaction.reply({ content: 'Unknown command', ephemeral: true });
     }

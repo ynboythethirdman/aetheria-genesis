@@ -1,11 +1,10 @@
 /**
- * Mirror — Autonomous Runner
+ * Mirror — Autonomous Runner (Multi-Instance)
  *
- * Runs the full pipeline indefinitely with account rotation.
+ * Supports multiple concurrent pipelines (per-channel).
+ * Each pipeline has its own state, keyword, and callbacks.
  * Auto-generates accounts when pool runs out.
  * 200 model cap per account (Roblox limit).
- *
- * Designed to run for days without human intervention.
  */
 
 const { generateOneAccount, loadAccounts } = require('./c1');
@@ -15,23 +14,36 @@ const { runB2 } = require('./b2');
 const { recordSession, getRemainingUploads, MODEL_CAP_PER_ACCOUNT } = require('./stats');
 const { notifyPipelineSummary } = require('./discord');
 
-let running = false;
-let currentCycle = 0;
-let cycleCallback = null;
-let alertCallback = null;
+// ── Pipeline Instances ───────────────────────────────────────────────
 
-function isRunning() { return running; }
-function getCurrentCycle() { return currentCycle; }
-function setCycleCallback(cb) { cycleCallback = cb; }
-function setAlertCallback(cb) { alertCallback = cb; }
+const pipelines = new Map(); // channelId → PipelineState
 
-function log(msg) {
-  console.log(`  \x1b[35m[Mirror]\x1b[0m ${msg}`);
+class PipelineState {
+  constructor(channelId, options = {}) {
+    this.channelId = channelId;
+    this.keyword = options.keyword || '';
+    this.modelsPerCycle = options.modelsPerCycle || 50;
+    this.threads = options.threads || 15;
+    this.maxCycles = options.maxCycles || 0;
+    this.running = false;
+    this.cycle = 0;
+    this.cycleCallback = null;
+    this.alertCallback = null;
+    this.startedAt = null;
+    this.startedBy = options.startedBy || 'unknown';
+  }
 }
 
-function emitAlert(type, msg) {
-  log(`\x1b[31m[${type.toUpperCase()}]\x1b[0m ${msg}`);
-  if (alertCallback) alertCallback(type, msg);
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function log(channelId, msg) {
+  const tag = channelId ? channelId.slice(-4) : '----';
+  console.log(`  \x1b[35m[Mirror:${tag}]\x1b[0m ${msg}`);
+}
+
+function emitAlert(pipeline, type, msg) {
+  log(pipeline.channelId, `\x1b[31m[${type.toUpperCase()}]\x1b[0m ${msg}`);
+  if (pipeline.alertCallback) pipeline.alertCallback(type, msg);
 }
 
 function getAvailableAccounts() {
@@ -42,72 +54,109 @@ function getAvailableAccounts() {
   });
 }
 
-/**
- * Run a single cycle: grab → title → upload.
- */
-async function runCycle(keyword, modelsPerCycle) {
-  const startTime = Date.now();
-  currentCycle++;
-  log(`Cycle #${currentCycle} starting...`);
+// ── Global Getters ───────────────────────────────────────────────────
 
-  // ── Get or create accounts ─────────────────────────────────────────
+function isRunning(channelId) {
+  if (channelId) {
+    const p = pipelines.get(channelId);
+    return p ? p.running : false;
+  }
+  for (const p of pipelines.values()) {
+    if (p.running) return true;
+  }
+  return false;
+}
+
+function getCurrentCycle(channelId) {
+  if (channelId) {
+    const p = pipelines.get(channelId);
+    return p ? p.cycle : 0;
+  }
+  let total = 0;
+  for (const p of pipelines.values()) total += p.cycle;
+  return total;
+}
+
+function getRunningPipelines() {
+  const running = [];
+  for (const p of pipelines.values()) {
+    if (p.running) running.push(p);
+  }
+  return running;
+}
+
+function setCycleCallback(channelId, cb) {
+  const p = pipelines.get(channelId);
+  if (p) p.cycleCallback = cb;
+}
+
+function setAlertCallback(channelId, cb) {
+  const p = pipelines.get(channelId);
+  if (p) p.alertCallback = cb;
+}
+
+// ── Cycle Logic ──────────────────────────────────────────────────────
+
+async function runCycle(pipeline) {
+  const startTime = Date.now();
+  pipeline.cycle++;
+  log(pipeline.channelId, `Cycle #${pipeline.cycle} starting...`);
+
+  // Get or create accounts
   let available = getAvailableAccounts();
 
   if (available.length === 0) {
-    log('No accounts with capacity — generating new batch...');
-    emitAlert('accounts', 'All accounts at 200 cap. Generating 5 new accounts...');
+    log(pipeline.channelId, 'No accounts with capacity — generating new batch...');
+    emitAlert(pipeline, 'accounts', 'All accounts at 200 cap. Generating 5 new accounts...');
 
     for (let i = 0; i < 5; i++) {
       try {
         const account = await generateOneAccount(i + 1);
         if (account && account.cookie) {
-          log(`Account ${account.username} created`);
+          log(pipeline.channelId, `Account ${account.username} created`);
         }
       } catch (err) {
-        emitAlert('error', `Account creation failed: ${err.message}`);
+        emitAlert(pipeline, 'error', `Account creation failed: ${err.message}`);
       }
     }
 
     available = getAvailableAccounts();
     if (available.length === 0) {
-      emitAlert('critical', 'Failed to create accounts. Check SMSPool balance and CAPTCHA credits.');
-      return { error: 'no_accounts', cycle: currentCycle };
+      emitAlert(pipeline, 'critical', 'Failed to create accounts. Check SMSPool balance and CAPTCHA credits.');
+      return { error: 'no_accounts', cycle: pipeline.cycle };
     }
   }
 
-  // Calculate capacity
   let totalCapacity = 0;
   for (const acc of available) totalCapacity += getRemainingUploads(acc.username);
-  const modelTarget = Math.min(modelsPerCycle || 50, totalCapacity);
+  const modelTarget = Math.min(pipeline.modelsPerCycle, totalCapacity);
 
-  log(`${available.length} account(s), capacity: ${totalCapacity}, targeting ${modelTarget} models`);
+  log(pipeline.channelId, `${available.length} account(s), capacity: ${totalCapacity}, targeting ${modelTarget} models`);
 
-  // ── Grab models ────────────────────────────────────────────────────
-  log('Grabbing models...');
+  // Grab models
+  log(pipeline.channelId, 'Grabbing models...');
   const a1Results = await runA1({
-    keyword: keyword || '',
+    keyword: pipeline.keyword || '',
     count: modelTarget,
     account: available[0],
   });
 
   if (!a1Results || a1Results.length === 0) {
-    emitAlert('warning', 'No models found for: ' + (keyword || 'popular'));
-    return { error: 'no_models', cycle: currentCycle };
+    emitAlert(pipeline, 'warning', 'No models found for: ' + (pipeline.keyword || 'popular'));
+    return { error: 'no_models', cycle: pipeline.cycle };
   }
 
-  log(`Grabbed ${a1Results.length} models`);
+  log(pipeline.channelId, `Grabbed ${a1Results.length} models`);
 
-  // ── Generate titles ────────────────────────────────────────────────
-  log('Generating titles...');
+  // Generate titles
+  log(pipeline.channelId, 'Generating titles...');
   const b1Results = await runB1(a1Results);
   const titled = b1Results.filter((r) => r.listing);
-  log(`${titled.length} titles generated`);
+  log(pipeline.channelId, `${titled.length} titles generated`);
 
-  // ── Upload with account rotation ──────────────────────────────────
-  log('Uploading...');
+  // Upload with round-robin account rotation
+  log(pipeline.channelId, 'Uploading...');
   const publishable = b1Results.filter((r) => r.listing && r.listing.modelPath);
-
-  // Distribute round-robin respecting capacity
   const accountChunks = new Map();
   let accIdx = 0;
 
@@ -130,7 +179,7 @@ async function runCycle(keyword, modelsPerCycle) {
       tries++;
     }
     if (tries >= available.length) {
-      emitAlert('accounts', 'All accounts at capacity');
+      emitAlert(pipeline, 'accounts', 'All accounts at capacity');
       break;
     }
   }
@@ -138,7 +187,7 @@ async function runCycle(keyword, modelsPerCycle) {
   const allB2 = [];
   for (const [username, { account, models }] of accountChunks) {
     if (models.length === 0) continue;
-    log(`Uploading ${models.length} to ${username}`);
+    log(pipeline.channelId, `Uploading ${models.length} to ${username}`);
     const b2Results = await runB2(models, account);
     allB2.push(...b2Results);
   }
@@ -152,113 +201,119 @@ async function runCycle(keyword, modelsPerCycle) {
   const totalFailed = allB2.filter((r) => r.published && !r.published.success).length;
 
   const summary = {
-    cycle: currentCycle,
+    cycle: pipeline.cycle,
+    keyword: pipeline.keyword || 'popular',
     modelsDownloaded: a1Results.length,
     modelsTitled: titled.length,
     modelsPublished: totalPublished,
     modelsFailed: totalFailed,
     accountsUsed: accountChunks.size,
     duration,
+    channelId: pipeline.channelId,
   };
 
   recordSession(summary);
-  log(`Cycle #${currentCycle}: ${totalPublished} uploaded, ${totalFailed} failed (${duration})`);
+  log(pipeline.channelId, `Cycle #${pipeline.cycle}: ${totalPublished} uploaded, ${totalFailed} failed (${duration})`);
 
   if (totalFailed > totalPublished && totalPublished + totalFailed > 0) {
-    emitAlert('warning', `High failure rate: ${totalFailed}/${totalPublished + totalFailed}`);
+    emitAlert(pipeline, 'warning', `High failure rate: ${totalFailed}/${totalPublished + totalFailed}`);
   }
 
-  // Send ONE clean cycle summary to Discord (no spam)
-  if (cycleCallback) cycleCallback(summary);
-
+  if (pipeline.cycleCallback) pipeline.cycleCallback(summary);
   return summary;
 }
 
-/**
- * Start autonomous loop.
- */
-async function startAutonomous(options = {}) {
-  const {
-    keyword = '',
-    modelsPerCycle = 50,
-    threads = 15,
-    maxCycles = 0,
-  } = options;
+// ── Start / Stop ─────────────────────────────────────────────────────
 
-  if (running) {
-    log('Already running');
+async function startAutonomous(channelId, options = {}) {
+  if (pipelines.has(channelId) && pipelines.get(channelId).running) {
+    log(channelId, 'Already running in this channel');
     return;
   }
 
+  const pipeline = new PipelineState(channelId, options);
+  pipelines.set(channelId, pipeline);
+
   // Apply thread config
-  if (threads) {
+  if (pipeline.threads) {
     const config = require('./config');
-    config.concurrency.uploads = threads;
+    config.concurrency.uploads = pipeline.threads;
   }
 
-  running = true;
-  currentCycle = 0;
+  pipeline.running = true;
+  pipeline.startedAt = Date.now();
   let consecutiveErrors = 0;
 
-  log('Autonomous mode started');
-  log(`Keyword: ${keyword || 'popular'} | Models/cycle: ${modelsPerCycle} | Threads: ${threads}`);
+  log(channelId, 'Autonomous mode started');
+  log(channelId, `Keyword: ${pipeline.keyword || 'popular'} | Models/cycle: ${pipeline.modelsPerCycle} | Threads: ${pipeline.threads}`);
 
-  while (running) {
+  while (pipeline.running) {
     try {
-      const result = await runCycle(keyword, modelsPerCycle);
+      const result = await runCycle(pipeline);
 
       if (result.error === 'no_accounts') {
         consecutiveErrors++;
         if (consecutiveErrors >= 3) {
-          emitAlert('critical', 'Failed to create accounts 3x. Stopping.');
+          emitAlert(pipeline, 'critical', 'Failed to create accounts 3x. Stopping.');
           break;
         }
-        await sleep(60000);
+        await sleep(pipeline, 60000);
         continue;
       }
 
       if (result.error === 'no_models') {
-        await sleep(30000);
+        await sleep(pipeline, 30000);
         continue;
       }
 
       consecutiveErrors = 0;
       await notifyPipelineSummary(result).catch(() => {});
 
-      if (maxCycles > 0 && currentCycle >= maxCycles) {
-        log(`Reached max cycles (${maxCycles}).`);
+      if (pipeline.maxCycles > 0 && pipeline.cycle >= pipeline.maxCycles) {
+        log(channelId, `Reached max cycles (${pipeline.maxCycles}).`);
         break;
       }
 
-      // Brief pause between cycles
-      await sleep(10000);
+      await sleep(pipeline, 10000);
 
     } catch (err) {
       consecutiveErrors++;
-      emitAlert('error', `Cycle error: ${err.message}`);
+      emitAlert(pipeline, 'error', `Cycle error: ${err.message}`);
       if (consecutiveErrors >= 5) {
-        emitAlert('critical', 'Too many errors. Stopping.');
+        emitAlert(pipeline, 'critical', 'Too many errors. Stopping.');
         break;
       }
-      await sleep(30000);
+      await sleep(pipeline, 30000);
     }
   }
 
-  running = false;
-  log(`Stopped after ${currentCycle} cycles`);
+  pipeline.running = false;
+  log(channelId, `Stopped after ${pipeline.cycle} cycles`);
 }
 
-function stopAutonomous() {
-  if (!running) return false;
-  running = false;
-  log('Stop requested — finishing current cycle...');
-  return true;
+function stopAutonomous(channelId) {
+  if (channelId) {
+    const p = pipelines.get(channelId);
+    if (!p || !p.running) return false;
+    p.running = false;
+    log(channelId, 'Stop requested — finishing current cycle...');
+    return true;
+  }
+  // Stop all
+  let stopped = false;
+  for (const p of pipelines.values()) {
+    if (p.running) {
+      p.running = false;
+      stopped = true;
+    }
+  }
+  return stopped;
 }
 
-function sleep(ms) {
+function sleep(pipeline, ms) {
   return new Promise((resolve) => {
     const check = setInterval(() => {
-      if (!running) { clearInterval(check); resolve(); }
+      if (!pipeline.running) { clearInterval(check); resolve(); }
     }, 1000);
     setTimeout(() => { clearInterval(check); resolve(); }, ms);
   });
@@ -267,4 +322,5 @@ function sleep(ms) {
 module.exports = {
   startAutonomous, stopAutonomous, isRunning, getCurrentCycle,
   setCycleCallback, setAlertCallback, getAvailableAccounts,
+  getRunningPipelines, pipelines,
 };
